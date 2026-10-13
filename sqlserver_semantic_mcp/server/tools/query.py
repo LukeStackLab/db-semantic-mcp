@@ -8,6 +8,8 @@ _DETAIL_PROP = {
 }
 _BUDGET_PROP = {
     "type": "string", "enum": ["tiny", "low", "medium", "high"],
+    "description": "Optional override. Omit to use the server budget "
+                   "(medium by default).",
 }
 _RESPONSE_MODE_PROP = {
     "type": "string", "enum": ["summary", "rows", "sample", "count_only"],

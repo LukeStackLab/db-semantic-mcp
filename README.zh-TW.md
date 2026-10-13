@@ -243,6 +243,8 @@ uv run python -m sqlserver_semantic_mcp.main
 
 所有設定透過 `SEMANTIC_MCP_` 前綴的環境變數進行。工作目錄下的 `.env` 檔也會自動載入。建議直接從 `.env.example` 開始。
 
+一般使用只需設定連線資訊。權限預設為唯讀,回應預算統一預設為 `medium`,不需選擇額外級別。需要寫入時,再依下方「自訂 Policy 檔」啟用 `read_write_safe`。其他設定供進階使用。
+
 ### 必要項目
 
 | 變數 | 說明 |
@@ -275,7 +277,7 @@ uv run python -m sqlserver_semantic_mcp.main
 | `SEMANTIC_MCP_METRICS_ENABLED` | `true` | 啟用每個工具回應大小量測 |
 | `SEMANTIC_MCP_DEFAULT_DETAIL` | `brief` | Agent-facing 工具的預設 detail tier |
 | `SEMANTIC_MCP_DEFAULT_RESPONSE_MODE` | `summary` | 查詢執行的預設回應 shape |
-| `SEMANTIC_MCP_DEFAULT_TOKEN_BUDGET_HINT` | `low` | 查詢取樣與 payload 的預設 budget |
+| `SEMANTIC_MCP_DEFAULT_TOKEN_BUDGET_HINT` | `medium` | 預設回應預算;資料表清單最多 500 筆,查詢 sample 最多 50 列。這是筆數限制,非固定 Token 上限 |
 | `SEMANTIC_MCP_DIRECT_EXECUTE_ENABLED` | `true` | 當 policy 允許時啟用 workflow fast path 直接執行 |
 | `SEMANTIC_MCP_STRICT_ROWS_AFFECTED_CAP` | `true` | 預設在超出 rows-affected cap 時回滾 |
 | `SEMANTIC_MCP_INTENT_ANALYZER` | `regex` | SQL 意圖分析器後端(`regex` 或 `ast`) |

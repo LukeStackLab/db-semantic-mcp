@@ -272,6 +272,8 @@ Dev-only dependencies: `pytest`, `pytest-asyncio`, `pytest-mock`.
 
 All configuration is via environment variables with the `SEMANTIC_MCP_` prefix. A `.env` file in the working directory is also loaded automatically. Start from `.env.example`.
 
+For normal use, configure only the connection. Permissions default to read-only and the response budget defaults to `medium`; no extra tier selection is needed. Enable `read_write_safe` through the Custom Policy File instructions below only when writes are needed. Other settings are for advanced use.
+
 ### Required
 
 | Variable | Description |
@@ -304,7 +306,7 @@ All configuration is via environment variables with the `SEMANTIC_MCP_` prefix. 
 | `SEMANTIC_MCP_METRICS_ENABLED` | `true` | Enable per-tool response size metrics |
 | `SEMANTIC_MCP_DEFAULT_DETAIL` | `brief` | Default detail tier for agent-facing tools |
 | `SEMANTIC_MCP_DEFAULT_RESPONSE_MODE` | `summary` | Default query execution response shape |
-| `SEMANTIC_MCP_DEFAULT_TOKEN_BUDGET_HINT` | `low` | Default sampling budget for query payloads |
+| `SEMANTIC_MCP_DEFAULT_TOKEN_BUDGET_HINT` | `medium` | Default response budget: up to 500 listed tables or 50 sample rows. These are item limits, not a fixed token cap |
 | `SEMANTIC_MCP_DIRECT_EXECUTE_ENABLED` | `true` | Allow workflow fast-path direct execution when policy approves |
 | `SEMANTIC_MCP_STRICT_ROWS_AFFECTED_CAP` | `true` | Roll back writes that exceed affected-row cap by default |
 | `SEMANTIC_MCP_INTENT_ANALYZER` | `regex` | SQL intent analyzer backend (`regex` or `ast`) |

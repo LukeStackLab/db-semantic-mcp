@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DetailTier = Literal["brief", "standard", "full"]
 ResponseMode = Literal["summary", "rows", "sample", "count_only"]
 TokenBudgetHint = Literal["tiny", "low", "medium", "high"]
+DEFAULT_TOKEN_BUDGET_HINT: TokenBudgetHint = "medium"
 AffectedRowsPolicy = Literal["strict", "report"]
 StartupMode = Literal["full", "cache_first"]
 
@@ -56,7 +57,7 @@ class Config(BaseSettings):
     # ---- v0.5 agent-oriented defaults ----
     default_detail: DetailTier = "brief"
     default_response_mode: ResponseMode = "summary"
-    default_token_budget_hint: TokenBudgetHint = "low"
+    default_token_budget_hint: TokenBudgetHint = DEFAULT_TOKEN_BUDGET_HINT
     direct_execute_enabled: bool = True
     strict_rows_affected_cap: bool = True
     workflow_tools_enabled: bool = True

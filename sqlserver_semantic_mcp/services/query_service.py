@@ -10,7 +10,7 @@ import logging
 from enum import Enum
 from typing import Any, Optional
 
-from ..config import Config, get_config
+from ..config import DEFAULT_TOKEN_BUDGET_HINT, Config, get_config
 from ..infrastructure.connection import open_connection
 from ..policy.analyzer import SqlIntent
 from .policy_service import PolicyService, intent_to_dict
@@ -50,7 +50,10 @@ _BUDGET_SAMPLE_ROWS = {
 
 
 def sample_row_cap(budget: Optional[str]) -> int:
-    return _BUDGET_SAMPLE_ROWS.get(budget or "low", 10)
+    return _BUDGET_SAMPLE_ROWS.get(
+        budget or DEFAULT_TOKEN_BUDGET_HINT,
+        _BUDGET_SAMPLE_ROWS[DEFAULT_TOKEN_BUDGET_HINT],
+    )
 
 
 # ---- service ----------------------------------------------------------------

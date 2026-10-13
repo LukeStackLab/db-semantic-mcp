@@ -19,7 +19,8 @@ _DETAIL_PROP = {
 
 _BUDGET_PROP = {
     "type": "string", "enum": ["tiny", "low", "medium", "high"],
-    "description": "Payload budget hint. tiny = minimum; high = full.",
+    "description": "Optional override. Omit to use the server budget "
+                   "(medium by default).",
 }
 
 
