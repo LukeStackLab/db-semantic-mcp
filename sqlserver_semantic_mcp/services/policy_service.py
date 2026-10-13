@@ -6,6 +6,7 @@ from ..policy.enforcer import enforce
 from ..policy.intents import get_analyzer
 from ..policy.loader import load_active_policy
 from ..policy.models import PolicyProfile
+from ..policy.readonly_guard import find_write_keywords, is_select_only
 
 
 class PolicyService:
@@ -34,9 +35,18 @@ class PolicyService:
         policy = self.current_policy()
         intent = self._analyzer.analyze(sql)
         result = enforce(intent, policy, database=database)
+        allowed, reason = result.allowed, result.reason
+        if allowed and is_select_only(policy):
+            hits = find_write_keywords(sql)
+            if hits:
+                allowed = False
+                reason = (
+                    "Select-only policy: batch contains write/control "
+                    f"keyword(s): {', '.join(hits)}"
+                )
         return {
-            "allowed": result.allowed,
-            "reason": result.reason,
+            "allowed": allowed,
+            "reason": reason,
             "intent": intent_to_dict(intent),
         }
 
