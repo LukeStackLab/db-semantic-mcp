@@ -1,28 +1,43 @@
+<div align="center">
+
 # sqlserver-semantic-mcp
 
-[English](README.en.md) | [繁體中文](README.zh-TW.md)
+**Give AI agents MCP tools to explore SQL Server, find table relationships and query data within configured permissions.**
 
-Give AI agents MCP tools to explore SQL Server, find table relationships and query data within configured permissions.
+[![PyPI](https://img.shields.io/pypi/v/sqlserver-semantic-mcp?color=blue&label=PyPI)](https://pypi.org/project/sqlserver-semantic-mcp/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://pypi.org/project/sqlserver-semantic-mcp/)
+[![Protocol](https://img.shields.io/badge/Protocol-MCP-8A2BE2)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![SQL Server](https://img.shields.io/badge/SQL%20Server-2017%2B-CC2927?logo=microsoftsqlserver&logoColor=white)](#quick-installation)
 
-- **Reuse database context**: cache schema metadata and semantic analysis to reduce repeated database reads.
-- **Keep responses compact**: start with summaries and request columns, indexes or query samples when needed.
-- **Isolate connections**: each MCP process has its own account, permissions, response budget and cache. New profiles are read-only by default.
+[![繁體中文](https://img.shields.io/badge/Language-%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-64748B?style=for-the-badge)](README.zh-TW.md)
+[![English](https://img.shields.io/badge/Language-English-2563EB?style=for-the-badge)](README.en.md)
 
-Supports Codex, Claude Code, Claude Desktop and Cursor.
+[Installation](#quick-installation) · [Setup wizard](#setup-wizard) · [Multiple connections](#multiple-connections) · [Permissions and cost](#permissions-and-cost) · [Maintenance](#profile-storage-and-maintenance)
+
+Supports **Codex · Claude Code · Claude Desktop · Cursor**
+
+</div>
+
+| Explore databases | Keep responses compact | Isolate connections |
+|:---|:---|:---|
+| Discover schema relationships and cache metadata and semantic analysis. | Start with summaries; request columns, indexes or samples when needed. | Each process has its own account, permissions, budget and cache. Read-only by default. |
+
+---
 
 ## Quick installation
 
-Prepare Git, a reachable SQL Server 2017+ instance and a SQL username/password. The wizard currently uses SQL authentication. The account needs the required data-read and metadata permissions.
+> **Before you start**: prepare Git, a reachable SQL Server 2017+ instance and a SQL username/password. The wizard uses SQL authentication; the account needs the required data-read and metadata permissions.
 
 ### 1. Install uv
 
-macOS / Linux:
+**macOS / Linux**
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Windows PowerShell:
+**Windows PowerShell**
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
@@ -42,7 +57,7 @@ uv tool install --python 3.11 --reinstall .
 
 Use a source version that includes `setup`. uv downloads Python when needed and creates a persistent tool environment. If installation displays a PATH warning, run `uv tool update-shell` and open a new terminal; see [uv tool environments](https://docs.astral.sh/uv/concepts/tools/).
 
-## Configure a connection with the wizard
+## Setup wizard
 
 For Claude Code, first change to the project where you want to use the MCP server. The wizard writes that project's `.mcp.json`.
 
@@ -58,19 +73,19 @@ The terminal prompts are currently in Traditional Chinese.
 4. After a successful connection check, answer `y` to add another connection or `n` to finish.
 5. Confirm the summary. The wizard saves profiles, verifies each MCP handshake, then merges client settings and backs up the original file.
 
-Reload MCP settings or restart the client. Claude Code still handles project trust prompts. Claude Desktop default settings paths are supported on macOS and Windows.
+> **After setup**: reload MCP settings or restart the client. Claude Code still handles project trust prompts. Claude Desktop default settings paths are supported on macOS and Windows.
 
-## Create and use multiple connections
+## Multiple connections
 
 Give each connection a different name. Create all five below in one wizard session, or run `setup` again later. Every new profile defaults to the `medium` response budget.
 
-| MCP name | Example use | Permissions |
-|---|---|---|
-| `erp_prod` | Production ERP | Read-only |
-| `erp_test` | Test ERP | Limited writes |
-| `reporting` | Reporting database | Read-only |
-| `crm` | Customer database | Read-only |
-| `warehouse` | Warehouse database | Read-only |
+| MCP name | Example use | Permissions | Response budget |
+|:---|:---|:---|:---|
+| `erp_prod` | Production ERP | Read-only | `medium` |
+| `erp_test` | Test ERP | Limited writes | `medium` |
+| `reporting` | Reporting database | Read-only | `medium` |
+| `crm` | Customer database | Read-only | `medium` |
+| `warehouse` | Warehouse database | Read-only | `medium` |
 
 Name the MCP server in your AI conversation:
 
@@ -81,6 +96,8 @@ Name the MCP server in your AI conversation:
 The agent selects that server's tools. Each MCP process keeps its fixed profile; response `source` fields identify the connection and database.
 
 ## Permissions and cost
+
+### Operations
 
 Only decide whether limited writes are needed:
 
@@ -93,13 +110,18 @@ Limited writes exclude `DELETE`, DDL, `EXEC`, write subqueries, CTEs and `OUTPUT
 
 MCP policies do not grant SQL Server permissions. Use a dedicated account for each purpose and enforce read-only access in the database for production connections. The wizard checks login and metadata access; it does not perform writes to test permissions.
 
-**Keep the response budget at `medium`.** By default, `get_tables` lists up to 500 tables, and query `sample` mode returns up to 50 sample rows. These are item limits, not fixed token or monetary caps.
+### Response budget
+
+**Keep it at `medium`.** By default, `get_tables` lists up to 500 tables, and query `sample` mode returns up to 50 sample rows. These are item limits, not fixed token or monetary caps.
 
 To reduce AI usage, ask the agent to find relevant tables before requesting detailed columns. Start queries with summaries or samples. Use `tool_metrics` to inspect response sizes in bytes; actual fees depend on your client, model and usage. Enabling more MCP servers may add tool descriptions to the context, so enable only the connections you need in the client.
 
 ## Profile storage and maintenance
 
-Each profile lives in `connections/<MCP name>/` and contains `connection.json`, `policy.json` and a separate cache.
+Each profile lives in `connections/<MCP name>/` and contains `connection.json`, `policy.json` and a separate cache. Passwords are stored in the system keyring when available.
+
+<details>
+<summary><b>Profile locations and password storage</b></summary>
 
 | Platform | Default profile root |
 |---|---|
@@ -107,7 +129,12 @@ Each profile lives in `connections/<MCP name>/` and contains `connection.json`, 
 | Windows | `%APPDATA%\sqlserver-semantic-mcp\connections\` |
 | Linux | `$XDG_CONFIG_HOME/sqlserver-semantic-mcp/connections/`; defaults to `~/.config/sqlserver-semantic-mcp/connections/` |
 
-Passwords are stored in the system keyring when available. On macOS / Linux, an unavailable keyring can be replaced by a plaintext credential file only with explicit consent, using directory mode `0700` and file mode `0600`. Windows uses the system keyring. Passwords are never written to client settings or `connection.json`.
+On macOS / Linux, an unavailable keyring can be replaced by a plaintext credential file only with explicit consent, using directory mode `0700` and file mode `0600`. Windows uses the system keyring. Passwords are never written to client settings or `connection.json`.
+
+</details>
+
+<details>
+<summary><b>Updates, diagnostics and existing startup options</b></summary>
 
 - **Update a connection**: rerun `setup`, enter its existing MCP name and confirm the update. Reload the client afterward.
 - **Check a connection**: replace the placeholder below with the full `connection.json` path printed by the wizard.
@@ -120,11 +147,22 @@ Client entries use the Python environment created during installation. If you mo
 
 Existing environment-variable and `.env` startup remains available; see [`.env.example`](.env.example). Fixed profiles created by the wizard ignore cwd `.env` and inherited `SEMANTIC_MCP_*` overrides.
 
-## Development and license
+</details>
+
+<details>
+<summary><b>Development and tests</b></summary>
 
 ```bash
 uv sync --locked --extra dev
 uv run pytest tests/unit
 ```
 
+</details>
+
+---
+
+<div align="center">
+
 [Report an issue](https://github.com/LukeStackLab/sqlserver-semantic-mcp/issues) · [MIT License](LICENSE)
+
+</div>
