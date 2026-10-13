@@ -34,9 +34,12 @@ def select_profile(pf: PolicyFile, override: Optional[str]) -> PolicyProfile:
 
 def apply_env_overrides(profile: PolicyProfile, cfg: Config) -> PolicyProfile:
     data = profile.model_dump()
-    data["constraints"]["max_rows_returned"] = cfg.max_rows_returned
-    data["constraints"]["max_rows_affected"] = cfg.max_rows_affected
-    data["constraints"]["query_timeout_seconds"] = cfg.query_timeout
+    for key, value in {
+        "max_rows_returned": cfg.max_rows_returned,
+        "max_rows_affected": cfg.max_rows_affected,
+        "query_timeout_seconds": cfg.query_timeout,
+    }.items():
+        data["constraints"][key] = min(data["constraints"][key], value) if cfg.connection_name else value
     return PolicyProfile.model_validate(data)
 
 

@@ -17,6 +17,40 @@ AI agents don't need raw `execute_sql`. They need to understand schema structure
 
 ## Quick Start
 
+### Interactive setup and independent MCP servers
+
+From this source checkout, run:
+
+```bash
+uv sync --extra dev
+uv run sqlserver-semantic-mcp setup
+```
+
+The Traditional Chinese wizard detects MCP clients and asks for a name, SQL Server host, port, database, user, hidden password and whether limited writes are needed. Permissions default to read-only and the response budget defaults to `medium`. Repeat the add-connection step to configure five or more independent servers.
+
+Supported clients are Codex, Claude Code, Claude Desktop and Cursor. Claude Desktop default paths are supported on macOS and Windows. Claude Code uses the current project's `.mcp.json`. After confirmation, each server must pass an MCP handshake before registration. Existing client settings and other MCP servers are preserved, with timestamped backups. Conflicting names are rejected. Reload the client's MCP configuration when needed; Claude Code project trust remains controlled by the client.
+
+Each entry launches a fixed-profile process. Ask the agent to use a server by name, for example `erp_test`. Every process has its own connection, policy and cache. Tool and resource results identify the connection and database in `source`; the server does not switch global connections.
+
+Profiles are stored under `~/Library/Application Support/sqlserver-semantic-mcp/connections/` on macOS, `%APPDATA%/sqlserver-semantic-mcp/connections/` on Windows, and `$XDG_CONFIG_HOME/sqlserver-semantic-mcp/connections/` on Linux, defaulting to `~/.config/` if XDG_CONFIG_HOME is unset. Each profile directory contains `connection.json`, `policy.json` and a separate cache.
+
+Passwords are stored in the system keyring when available; profile and client files contain only references. On POSIX, an unavailable keyring can be replaced by a plaintext credential file only after explicit consent, with directory mode 0700 and file mode 0600. Windows uses the system keyring. Manually managed profiles may also reference a password environment variable.
+
+Run setup again to add or update profiles. Advanced path overrides and diagnostics:
+
+```bash
+uv run sqlserver-semantic-mcp setup --client cursor --config-dir /absolute/connections --client-config /absolute/mcp.json
+uv run sqlserver-semantic-mcp doctor --config /absolute/connections/erp_test/connection.json
+```
+
+Registrations use the Python environment that runs setup, with `-I` to isolate imports from the client working directory and PYTHONPATH. Rerun setup if that environment is moved or removed. Once a package release includes this feature, `uvx sqlserver-semantic-mcp setup` can also be used.
+
+Fixed-profile serving ignores cwd `.env` and inherited `SEMANTIC_MCP_*` settings. Missing credentials or invalid policy prevent startup. A changed target, principal or policy selects a new cache path. Writes use advisory locks, snapshot checks and atomic replacement; cooperating installers are serialized, while external editors may not honor the lock. Backups support recovery.
+
+Limited writes support one simple `INSERT ... VALUES` or `UPDATE` with WHERE; an affected-row overflow is rolled back. Write subqueries, CTEs, OUTPUT, DDL and EXEC are rejected. Database scope still requires a dedicated SQL Server account with appropriate grants. The wizard only performs read-only connection checks. It currently uses SQL username/password authentication; the existing environment-based Windows Authentication path remains available.
+
+### Existing manual single-connection configuration
+
 Pick the path that matches your client. All paths use [`uvx`](https://docs.astral.sh/uv/) — no `git clone`, no virtualenv, no manual install. `uvx` downloads and runs the package on demand and caches it for next time.
 
 > **Prerequisite:** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once (`curl -LsSf https://astral.sh/uv/install.sh | sh`). Python 3.11+ is fetched automatically by `uv` if needed.

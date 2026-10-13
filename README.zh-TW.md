@@ -17,6 +17,48 @@ AI Agent 不需要赤裸的 `execute_sql`。它們需要理解 schema 結構、�
 
 ## 快速開始
 
+### 互動式安裝與多組獨立 MCP
+
+此原始碼版本提供終端機安裝精靈。先在專案目錄執行：
+
+```bash
+uv sync --extra dev
+uv run sqlserver-semantic-mcp setup
+```
+
+精靈會偵測 MCP Client，逐步詢問名稱、SQL Server 主機、port、資料庫、帳號與隱藏輸入的密碼。權限預設唯讀；只有需要時才啟用受限寫入。回應預算預設為 `medium`，不需選擇級別。回答「再新增一組連線」即可設定五組或更多配置。
+
+支援 Codex、Claude Code、Claude Desktop 與 Cursor。Claude Desktop 的預設路徑支援 macOS 與 Windows；Claude Code 使用目前專案的 `.mcp.json`。最後確認後，精靈會測試每組 MCP 握手，再合併 Client 設定並建立備份。原有 MCP 與其他設定會保留，名稱衝突不會覆蓋。Client 可能需要重新載入設定；Claude Code 的專案 MCP 仍依 Client 規則取得使用者信任。
+
+每組配置註冊成獨立程序。例如告訴 Agent「接下來使用 `erp_test`」，Agent 就選用該 MCP 的工具。每個程序固定自己的連線、policy 與快取；回應的 `source` 標示配置名稱與資料庫。程式內不切換全域連線。
+
+配置預設保存於：
+
+| 平台 | 配置根目錄 |
+|---|---|
+| macOS | `~/Library/Application Support/sqlserver-semantic-mcp/connections/` |
+| Windows | `%APPDATA%/sqlserver-semantic-mcp/connections/` |
+| Linux | `$XDG_CONFIG_HOME/sqlserver-semantic-mcp/connections/`，未設定時使用 `~/.config/` |
+
+每組目錄包含 `connection.json`、`policy.json` 與獨立快取。密碼優先存入系統憑證庫，Client 設定與 connection.json 只保存參照。無法使用憑證庫時，POSIX 平台會詢問是否改用明碼的本機憑證檔，並限制目錄為 0700、檔案為 0600。Windows 使用系統憑證庫；手動配置也支援指定密碼環境變數。
+
+重新執行 setup 可新增或更新配置。需要指定位置時：
+
+```bash
+uv run sqlserver-semantic-mcp setup --client cursor --config-dir /absolute/connections --client-config /absolute/mcp.json
+uv run sqlserver-semantic-mcp doctor --config /absolute/connections/erp_test/connection.json
+```
+
+Client 註冊命令會使用執行 setup 的 Python 環境，並以 `-I` 隔離工作目錄與 PYTHONPATH 的套件載入。移除或搬動該環境後，重新執行 setup。套件發佈包含此功能的版本後，也可用 `uvx sqlserver-semantic-mcp setup`。
+
+指定配置啟動時，不載入工作目錄 `.env`，繼承的 `SEMANTIC_MCP_*` 也不能覆寫配置。缺少憑證或有效 policy 時拒絕啟動。連線目標、帳號或 policy 變更後使用新的快取路徑。
+
+設定寫入使用檔案鎖、寫入前版本檢查與 atomic replace。本工具的並行寫入會互斥；外部編輯器不一定遵守檔案鎖，安裝期間請保留原有備份供復原。
+
+受限寫入支援單一 `INSERT ... VALUES` 或帶 WHERE 的 `UPDATE`，超過影響列數上限即回滾。不支援寫入子查詢、CTE、OUTPUT、DDL 或 EXEC。資料範圍仍須由專用 SQL Server 帳號限制；安裝精靈不以真實寫入測試權限。精靈目前使用 SQL 帳號密碼；既有 Windows Authentication 環境變數流程仍保留。
+
+### 手動設定既有單一連線
+
 依你使用的 client 選一條路徑。所有路徑都用 [`uvx`](https://docs.astral.sh/uv/) — 不需要 `git clone`、不需要建虛擬環境、不需要手動安裝。`uvx` 會在第一次使用時下載並快取套件。
 
 > **前置:** 安裝一次 [uv](https://docs.astral.sh/uv/getting-started/installation/)(`curl -LsSf https://astral.sh/uv/install.sh | sh`)。Python 3.11+ 由 `uv` 自動取得。

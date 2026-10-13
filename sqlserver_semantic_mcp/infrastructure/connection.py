@@ -19,6 +19,8 @@ def build_pymssql_kwargs(cfg: Config) -> dict[str, Any]:
         "server": server,
         "database": cfg.mssql_database,
         "port": cfg.mssql_port,
+        "timeout": cfg.query_timeout,
+        "login_timeout": min(cfg.query_timeout, 10),
     }
 
     if ".database.windows.net" in server.lower():
@@ -26,6 +28,7 @@ def build_pymssql_kwargs(cfg: Config) -> dict[str, Any]:
 
     if cfg.mssql_encrypt:
         kwargs["tds_version"] = "7.4"
+        kwargs["encryption"] = "require"
 
     if not cfg.mssql_windows_auth:
         if cfg.mssql_user is None or cfg.mssql_password is None:

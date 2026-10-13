@@ -100,7 +100,7 @@ class QueryService:
         policy = self._policy.current_policy()
         validation = self._policy.validate(sql, database=db)
         intent = validation["intent"]
-        limit = max_rows or policy.constraints.max_rows_returned
+        limit = min(max_rows or policy.constraints.max_rows_returned, policy.constraints.max_rows_returned)
 
         return {
             "kind": "query_preview",
@@ -145,11 +145,13 @@ class QueryService:
 
         strict_cap = self._cfg.strict_rows_affected_cap
         if affected_rows_policy is not None:
-            strict_cap = affected_rows_policy == "strict"
+            strict_cap = (
+                strict_cap if self._cfg.connection_name else False
+            ) or affected_rows_policy == "strict"
 
         db = database or self._cfg.mssql_database
         policy = self._policy.current_policy()
-        limit = max_rows or policy.constraints.max_rows_returned
+        limit = min(max_rows or policy.constraints.max_rows_returned, policy.constraints.max_rows_returned)
 
         validation = self._policy.validate(sql, database=db)
         if not validation["allowed"]:
@@ -183,11 +185,17 @@ class QueryService:
                     except Exception:
                         logger.warning("Failed to close cursor", exc_info=True)
         except Exception as e:
-            logger.exception("Query execution failed")
+            message = str(e)
+            if self._cfg.mssql_password:
+                message = message.replace(self._cfg.mssql_password, "***")
+            if self._cfg.connection_name:
+                logger.error("Query failed for connection %s: %s", self._cfg.connection_name, message)
+            else:
+                logger.exception("Query execution failed")
             return {
                 "executed": False,
                 "validation": validation,
-                "error": str(e),
+                "error": message,
                 "next_action": "revise_query",
             }
 
@@ -258,6 +266,13 @@ class QueryService:
         validation: dict,
     ) -> dict:
         affected = cursor.rowcount
+        if strict_cap and affected < 0:
+            conn.rollback()
+            return {
+                "executed": False, "validation": validation,
+                "error": "Unable to determine affected rows; transaction rolled back",
+                "next_action": "revise_query",
+            }
         exceeded = affected > cap
 
         if strict_cap and exceeded:

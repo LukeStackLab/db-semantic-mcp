@@ -59,6 +59,17 @@ def _split_qualified(qualified: str, uri: str) -> tuple[str, str]:
 
 @app.read_resource()
 async def read_resource(uri: AnyUrl) -> str:
+    payload = await _read_resource_payload(uri)
+    cfg = get_context().cfg
+    if cfg.connection_name:
+        return json.dumps({
+            "source": {"connection": cfg.connection_name, "database": cfg.mssql_database},
+            "data": json.loads(payload),
+        }, ensure_ascii=False, default=str, separators=(",", ":"))
+    return payload
+
+
+async def _read_resource_payload(uri: AnyUrl) -> str:
     ctx = get_context()
     cp = ctx.cfg.cache_path
     db = ctx.cfg.mssql_database

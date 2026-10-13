@@ -42,6 +42,10 @@
 
 ## 🚀 3 分鐘極速上手
 
+此原始碼版本支援互動式配置多個獨立 MCP：在專案目錄執行 `uv sync --extra dev`，再執行 `uv run sqlserver-semantic-mcp setup`。精靈逐步測試連線、保存憑證並合併 Client 設定。每組預設唯讀、預算 `medium`，各自使用獨立程序、policy 與快取。完整流程請見 [互動式安裝](./README.zh-TW.md#互動式安裝與多組獨立-mcp)。
+
+以下是已發佈版本的手動設定方式。
+
 不需要 `git clone`、不需要建虛擬環境、不需要安裝任何東西到專案裡。只要 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)(一行指令安裝:`curl -LsSf https://astral.sh/uv/install.sh | sh`),`uvx` 會自動下載、快取並啟動伺服器。
 
 > ⚠️ 把範例中的 `localhost` / `YourDatabase` / `sa` / `YourPassword` 換成你的 SQL Server 連線資訊即可。

@@ -4,7 +4,10 @@ See docs/superpowers/specs/2026-04-19-p0-token-optimization-design.md for rules.
 """
 from typing import Any
 
-NULLABLE_FALSE_KEEP: frozenset[str] = frozenset({"is_nullable"})
+NULLABLE_FALSE_KEEP: frozenset[str] = frozenset({
+    "is_nullable", "allowed", "executed", "found", "truncated",
+    "readonly", "exceeded_cap",
+})
 
 
 def _is_falsy_strippable(value: Any) -> bool:

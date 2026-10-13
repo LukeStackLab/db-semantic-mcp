@@ -20,6 +20,7 @@ class Config(BaseSettings):
     )
 
     # ---- DB connection ----
+    connection_name: Optional[str] = None
     mssql_server: str
     mssql_user: Optional[str] = None
     mssql_password: Optional[str] = None
@@ -81,3 +82,9 @@ def reset_config() -> None:
     """Test helper only."""
     global _config
     _config = None
+
+
+def configure(cfg: Config) -> None:
+    """Select the fixed configuration before starting this process."""
+    global _config
+    _config = cfg

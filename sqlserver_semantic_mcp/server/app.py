@@ -96,11 +96,16 @@ async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name not in _TOOL_REGISTRY:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     _t, handler = _TOOL_REGISTRY[name]
+    cfg = get_config()
     if name != "refresh_schema_cache":  # the refresh tool warms up itself
         await revalidation.maybe_revalidate(get_config())
     try:
         result = await handler(arguments or {})
         shaped = compact(result)
+        array_length = len(shaped) if isinstance(shaped, list) else None
+        if cfg.connection_name:
+            source = {"connection": cfg.connection_name, "database": cfg.mssql_database}
+            shaped = {**shaped, "source": source} if isinstance(shaped, dict) else {"data": shaped, "source": source}
         text = json.dumps(
             shaped, ensure_ascii=False, default=str, separators=(",", ":"),
         )
@@ -110,7 +115,7 @@ async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
                 await metrics_service.record_metric(
                     get_config().cache_path, name,
                     response_bytes=len(text.encode("utf-8")),
-                    array_length=len(shaped) if isinstance(shaped, list) else None,
+                    array_length=array_length,
                     fields_returned=len(shaped) if isinstance(shaped, dict) else None,
                     **extras,
                 )
@@ -118,5 +123,13 @@ async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
                 logger.exception("metrics_service.record_metric failed")
         return [TextContent(type="text", text=text)]
     except Exception as e:
-        logger.exception("Tool %s raised", name)
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        message = str(e)
+        if cfg.mssql_password:
+            message = message.replace(cfg.mssql_password, "***")
+        error = {"error": message}
+        if cfg.connection_name:
+            logger.error("Tool %s failed for connection %s: %s", name, cfg.connection_name, message)
+            error["source"] = {"connection": cfg.connection_name, "database": cfg.mssql_database}
+        else:
+            logger.exception("Tool %s raised", name)
+        return [TextContent(type="text", text=json.dumps(error, ensure_ascii=False))]
