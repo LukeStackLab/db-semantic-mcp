@@ -9,7 +9,6 @@ from typing import Optional
 from ...config import Config
 from ..workers import run_db_work
 from .probe import diff_fingerprints, fetch_fingerprints, read_fingerprints
-from .semantic import mark_objects_dirty
 from .structural import read_schema_version, warmup_structural_cache
 
 logger = logging.getLogger(__name__)
@@ -51,10 +50,7 @@ def is_due(cfg: Config) -> bool:
     return state.last_checked == 0.0 or time.monotonic() - state.last_checked >= interval
 
 
-async def cache_freshness(cfg: Config) -> dict:
-    """Report persisted snapshot age, including DB-offline stale responses."""
-    version = await read_schema_version(cfg.cache_path, cfg.mssql_database)
-    captured_at = version.get("captured_at") if version else None
+def _snapshot_freshness(captured_at, ttl: float) -> dict:
     age = None
     if captured_at:
         try:
@@ -64,12 +60,44 @@ async def cache_freshness(cfg: Config) -> dict:
             age = max(0.0, (datetime.now(timezone.utc) - captured).total_seconds())
         except (TypeError, ValueError):
             pass
-    stale = age is None or age >= cfg.schema_cache_ttl_s
-    state = _state(cfg)
     return {
         "captured_at": captured_at,
         "age_seconds": round(age, 3) if age is not None else None,
-        "stale": stale,
+        "stale": age is None or age >= ttl,
+    }
+
+
+def merge_cache_metadata(cfg: Config, metadata: dict, freshness: dict) -> dict:
+    """Separate payload snapshot identity from latest persisted diagnostics."""
+    # compact() can omit an unknown capture time, but hit still identifies
+    # metadata tied to the snapshot read by the handler.
+    if "captured_at" in metadata or metadata.get("hit"):
+        merged = {**metadata, **freshness}
+        merged.update(_snapshot_freshness(metadata.get("captured_at"), cfg.schema_cache_ttl_s))
+        if "stale" in metadata:
+            merged["stale"] = metadata["stale"]
+        return merged
+    # A current cache capture cannot identify content already read by a
+    # handler that did not return its own snapshot metadata.
+    merged = {key: value for key, value in metadata.items()
+              if key not in {"captured_at", "age_seconds", "stale"}}
+    merged.update(snapshot_unknown=True, latest_snapshot={
+        key: value for key, value in freshness.items()
+        if key not in {"refreshing", "refresh_failed"}
+    })
+    for key in ("refreshing", "refresh_failed", "freshness_unknown"):
+        if key in freshness:
+            merged[key] = freshness[key]
+    return merged
+
+
+async def cache_freshness(cfg: Config) -> dict:
+    """Report persisted snapshot age, including DB-offline stale responses."""
+    version = await read_schema_version(cfg.cache_path, cfg.mssql_database)
+    captured_at = version.get("captured_at") if version else None
+    state = _state(cfg)
+    return {
+        **_snapshot_freshness(captured_at, cfg.schema_cache_ttl_s),
         "refreshing": state.task is not None and not state.task.done(),
         "refresh_failed": state.refresh_failed,
     }
@@ -85,13 +113,9 @@ async def _run_probe(cfg: Config, state: _ProbeState) -> Optional[dict]:
         refreshed = False
         objects_marked = 0
         if diff.has_changes or baseline_missing or freshness["stale"]:
-            await warmup_structural_cache(cfg, fingerprints=fresh)
+            snapshot = await warmup_structural_cache(cfg, fingerprints=fresh)
             refreshed = True
-            if not baseline_missing:
-                keys = {(s, n) for (s, n, _t) in diff.changed_objects}
-                for tkey in (*diff.changed_tables, *diff.removed_tables):
-                    keys.update(fresh.table_dependents.get(tkey, []))
-                objects_marked = await mark_objects_dirty(cfg.cache_path, cfg.mssql_database, keys)
+            objects_marked = snapshot.get("objects_marked_dirty", 0)
         state.refresh_failed = False
         return {
             "probed": True, "refreshed": refreshed,

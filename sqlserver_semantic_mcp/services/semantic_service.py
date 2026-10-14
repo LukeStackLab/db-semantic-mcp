@@ -124,6 +124,55 @@ def _classify(struct: dict, table: str) -> dict:
             "algorithm": "constraints-v1"}
 
 
+def _classification_cache_allowed(policy) -> bool:
+    """Shared analyses describe all FK targets in this database.
+
+    Database-only scope does not change local FK visibility after the source
+    is authorized. Unknown policy adapters conservatively bypass the cache.
+    """
+    if policy is None:
+        return True
+    current_policy = getattr(policy, "current_policy", None)
+    if current_policy is None:
+        return False
+    scope = current_policy().scope
+    return not (scope.allowed_schemas or scope.allowed_tables or scope.denied_tables)
+
+
+def _authorized_structure(struct: dict, database: str, policy=None) -> dict:
+    return {**struct, "foreign_keys": [
+        fk for fk in struct["foreign_keys"]
+        if policy is None or policy.object_allowed(fk["ref_schema"], fk["ref_table"], database)
+    ]}
+
+
+def _cached_classification(cached, structural_hash: str, *, policy=None) -> Optional[dict]:
+    if not _classification_cache_allowed(policy) or not cached:
+        return None
+    classification = cached.get("classification")
+    if isinstance(classification, str):
+        try:
+            classification = json.loads(classification)
+        except (ValueError, TypeError):
+            return None
+    if (cached.get("status") == "ready" and cached.get("structural_hash") == structural_hash
+            and isinstance(classification, dict) and classification.get("algorithm") == "constraints-v1"):
+        return classification
+    return None
+
+
+def _classification_for_structure(struct: dict, table: str, database: str, *, policy=None, cached=None) -> dict:
+    classification = _cached_classification(cached, struct.get("structural_hash", ""), policy=policy)
+    if classification is not None:
+        return classification
+    return _classify(_authorized_structure(struct, database, policy), table)
+
+
+def _analyze_column_structure(struct: dict) -> list[dict]:
+    return [{"column": c["column_name"], "semantic_type": _column_semantic(c) or "generic"}
+            for c in struct["columns"]]
+
+
 async def classify_table(
     db_path: str, database: str, schema: str, table: str,
     *, force: bool = False, policy=None,
@@ -131,24 +180,28 @@ async def classify_table(
     if policy is not None:
         policy.authorize_object(schema, table, database)
     struct = await _load_table_structure(db_path, database, schema, table)
+    if policy is not None:
+        policy.authorize_object(schema, table, database)
     if struct is None:
         return {"type": "unknown", "confidence": 0.0,
                 "reasons": ["table not found"]}
     structural_hash = struct["structural_hash"]
 
-    if not force:
+    cache_allowed = _classification_cache_allowed(policy)
+    if not force and cache_allowed:
         cached = await get_table_analysis(db_path, database, schema, table)
-        if cached and cached["status"] == "ready" \
-                and cached.get("structural_hash") == structural_hash \
-                and (cached.get("classification") or {}).get("algorithm") == "constraints-v1":
-            return cached["classification"]
+        if policy is not None:
+            policy.authorize_object(schema, table, database)
+        classification = _cached_classification(cached, structural_hash, policy=policy)
+        if classification is not None:
+            return classification
 
-    classification = _classify(struct, table)
-    column_analysis = [
-        {"column": c["column_name"],
-         "semantic_type": _column_semantic(c) or "generic"}
-        for c in struct["columns"]
-    ]
+    classification = _classification_for_structure(struct, table, database, policy=policy)
+    # The cache read above can yield to a policy reload. Keep the write
+    # decision in the same synchronous section as scope-dependent classification.
+    if not cache_allowed or not _classification_cache_allowed(policy):
+        return classification
+    column_analysis = _analyze_column_structure(struct)
     is_lookup = classification["type"] == "lookup"
 
     await upsert_table_analysis(
@@ -165,8 +218,17 @@ async def analyze_columns(
     db_path: str, database: str, schema: str, table: str,
     *, policy=None,
 ) -> list[dict]:
-    await classify_table(db_path, database, schema, table, policy=policy)
+    if _classification_cache_allowed(policy):
+        await classify_table(db_path, database, schema, table, policy=policy)
+    # Classification may have yielded to a reload and skipped persistence.
+    if not _classification_cache_allowed(policy):
+        policy.authorize_object(schema, table, database)
+        struct = await _load_table_structure(db_path, database, schema, table)
+        policy.authorize_object(schema, table, database)
+        return _analyze_column_structure(struct) if struct is not None else []
     cached = await get_table_analysis(db_path, database, schema, table)
+    if policy is not None:
+        policy.authorize_object(schema, table, database)
     return cached.get("column_analysis", []) if cached else []
 
 
@@ -185,8 +247,7 @@ async def summarize_for_joining(
         return None
 
     from .relationship_service import group_foreign_keys
-    groups = group_foreign_keys([fk for fk in struct["foreign_keys"]
-                                if policy is None or policy.object_allowed(fk["ref_schema"], fk["ref_table"], database)])
+    groups = group_foreign_keys(_authorized_structure(struct, database, policy)["foreign_keys"])
     join_candidates = []
     for fk in groups:
         candidate = {"to_table": f"{fk['ref_schema']}.{fk['ref_table']}",
@@ -203,7 +264,7 @@ async def summarize_for_joining(
         if (_column_semantic(c) or "") in _COMMON_FILTER_SEMANTICS
     ]
 
-    classification = _classify(struct, table)
+    classification = _classification_for_structure(struct, table, database, policy=policy)
 
     return {
         "table": f"{schema}.{table}",
@@ -224,14 +285,19 @@ async def detect_lookup_tables(
     results: list[dict] = []
     need_classify: list[tuple[str, str]] = []
     kw_lower = keyword.lower() if keyword else None
+    cache_allowed = _classification_cache_allowed(policy)
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
+        query = (
             "SELECT t.schema_name,t.table_name,t.structural_hash,a.status,"
             "a.structural_hash AS analysis_hash,a.classification "
             "FROM sc_tables t LEFT JOIN sem_table_analysis a "
             "ON a.database_name=t.database_name AND a.schema_name=t.schema_name AND a.table_name=t.table_name "
-            "WHERE t.database_name=? ORDER BY t.schema_name,t.table_name", (database,))
+            "WHERE t.database_name=? ORDER BY t.schema_name,t.table_name"
+            if cache_allowed else
+            "SELECT schema_name,table_name FROM sc_tables WHERE database_name=? ORDER BY schema_name,table_name"
+        )
+        cur = await db.execute(query, (database,))
         for row in await cur.fetchall():
             schema, table = row["schema_name"], row["table_name"]
             if schemas and schema not in schemas:
@@ -240,13 +306,11 @@ async def detect_lookup_tables(
                 continue
             if policy is not None and not policy.object_allowed(schema, table, database):
                 continue
-            try:
-                classification = json.loads(row["classification"] or "null")
-            except (ValueError, TypeError):
-                classification = None
-            ready = (row["status"] == "ready" and row["analysis_hash"] == row["structural_hash"]
-                     and isinstance(classification, dict) and classification.get("algorithm") == "constraints-v1")
-            if not ready:
+            classification = (_cached_classification(
+                {"status": row["status"], "structural_hash": row["analysis_hash"],
+                 "classification": row["classification"]}, row["structural_hash"], policy=policy)
+                if cache_allowed else None)
+            if classification is None:
                 need_classify.append((schema, table))
             elif classification.get("type") == "lookup" and classification.get("confidence", 0) >= confidence_min:
                 results.append({"schema_name": schema, "table_name": table, "confidence": classification["confidence"]})

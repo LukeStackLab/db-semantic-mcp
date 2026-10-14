@@ -165,3 +165,24 @@ async def test_old_nonlookup_classification_recomputed_for_compound_fk(tmp_path)
                                 classification={"type": "bridge", "confidence": .8}, is_lookup=False)
     result = await detect_lookup_tables(path, "db")
     assert [row["table_name"] for row in result] == ["T"]
+
+
+@pytest.mark.asyncio
+async def test_scoped_describe_and_lookup_do_not_read_shared_classification(tmp_path, monkeypatch):
+    from sqlserver_semantic_mcp.services.semantic_service import detect_lookup_tables
+    path = await make_store(tmp_path)
+    connect = aiosqlite.connect
+    queries = []
+    def tracked_connect(*args, **kwargs):
+        conn = connect(*args, **kwargs)
+        execute = conn.execute
+        def tracked_execute(sql, *params, **kw):
+            queries.append(sql)
+            return execute(sql, *params, **kw)
+        conn.execute = tracked_execute
+        return conn
+    monkeypatch.setattr(metadata_service.aiosqlite, "connect", tracked_connect)
+    policy = LimitedPolicy()
+    assert await metadata_service.describe_table(path, "db", "dbo", "Public", policy=policy)
+    await detect_lookup_tables(path, "db", policy=policy)
+    assert not any("sem_table_analysis" in query for query in queries)

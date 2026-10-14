@@ -51,7 +51,7 @@ SELECT
     s.name AS SCHEMA_NAME,
     t.name AS TABLE_NAME,
     i.name AS INDEX_NAME,
-    CAST(i.is_unique AS INT),
+    CAST(CASE WHEN MIN(ic.key_ordinal) > 0 THEN i.is_unique ELSE 0 END AS INT),
     CAST(i.is_primary_key AS INT),
     CONCAT(N'[', STRING_AGG(N'"' + STRING_ESCAPE(c.name, 'json') + N'"', N',')
         WITHIN GROUP (ORDER BY ic.key_ordinal), N']') AS COLS,
@@ -63,7 +63,8 @@ JOIN sys.index_columns ic
     ON i.object_id = ic.object_id AND i.index_id = ic.index_id
 JOIN sys.columns c
     ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-WHERE i.name IS NOT NULL AND ic.is_included_column = 0 AND ic.key_ordinal > 0
+WHERE i.name IS NOT NULL AND ic.is_included_column = 0
+    AND (ic.key_ordinal > 0 OR i.type IN (3, 4))
 GROUP BY s.name, t.name, i.name, i.is_unique, i.is_primary_key,
          i.has_filter, i.is_disabled
 ORDER BY s.name, t.name, i.name

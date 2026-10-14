@@ -1,7 +1,6 @@
 """Authorized, detail-aware metadata reads from the local snapshot."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
@@ -101,14 +100,22 @@ async def describe_table(db_path: str, database: str, schema: str, table: str, *
     _authorize(policy, database, schema, table)
     if detail not in {"brief", "standard", "full"}:
         raise ValueError("Invalid metadata detail")
+    from .semantic_service import _classification_cache_allowed, _classification_for_structure
+    cache_allowed = _classification_cache_allowed(policy)
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
+        query = (
             "SELECT t.structural_hash,a.classification,a.status,a.structural_hash AS analysis_hash,"
             "v.captured_at FROM sc_tables t LEFT JOIN sem_table_analysis a "
             "ON a.database_name=t.database_name AND a.schema_name=t.schema_name AND a.table_name=t.table_name "
             "LEFT JOIN schema_version v ON v.database_name=t.database_name "
-            "WHERE t.database_name=? AND t.schema_name=? AND t.table_name=?", (database, schema, table))
+            "WHERE t.database_name=? AND t.schema_name=? AND t.table_name=?"
+            if cache_allowed else
+            "SELECT t.structural_hash,v.captured_at FROM sc_tables t "
+            "LEFT JOIN schema_version v ON v.database_name=t.database_name "
+            "WHERE t.database_name=? AND t.schema_name=? AND t.table_name=?"
+        )
+        cur = await db.execute(query, (database, schema, table))
         state = await cur.fetchone()
         if state is None:
             return None
@@ -133,17 +140,11 @@ async def describe_table(db_path: str, database: str, schema: str, table: str, *
                                    "AND schema_name=? AND object_name=? AND column_name=''", (database, schema, table))
             row = await cur.fetchone()
             description = row["description"] if row else None
-    from .semantic_service import _classify
-    classification = None
-    if state["status"] == "ready" and state["analysis_hash"] == state["structural_hash"] and state["classification"]:
-        try:
-            classification = json.loads(state["classification"])
-            if not isinstance(classification, dict) or classification.get("algorithm") != "constraints-v1":
-                classification = None
-        except (ValueError, TypeError):
-            pass
-    if classification is None:
-        classification = _classify({"columns": all_columns, "primary_key": pk, "foreign_keys": fks}, table)
+    cached = {"classification": state["classification"], "status": state["status"],
+              "structural_hash": state["analysis_hash"]} if cache_allowed else None
+    classification = _classification_for_structure(
+        {"columns": all_columns, "primary_key": pk, "foreign_keys": fks,
+         "structural_hash": state["structural_hash"]}, table, database, policy=policy, cached=cached)
     selected = all_columns
     if columns is not None:
         known = {col["column_name"] for col in all_columns}

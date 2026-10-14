@@ -72,9 +72,9 @@ async def read_resource(uri: AnyUrl) -> str:
         except Exception:
             freshness = {"freshness_unknown": True}
         if isinstance(data, dict):
-            data["cache"] = {**data.get("cache", {}), **freshness}
+            data["cache"] = revalidation.merge_cache_metadata(cfg, data.get("cache", {}), freshness)
         else:
-            data = {"data": data, "cache": freshness}
+            data = {"data": data, "cache": revalidation.merge_cache_metadata(cfg, {}, freshness)}
     if cfg.connection_name:
         return json.dumps({
             "source": {"connection": cfg.connection_name, "database": cfg.mssql_database},

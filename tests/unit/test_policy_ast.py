@@ -273,3 +273,77 @@ def test_metadata_function_policy_respects_deny_only_scope_and_quoted_columns():
     assert not svc.validate("SELECT OBJECT_ID(N'dbo.Secrets')")["allowed"]
     assert svc.validate("SELECT [OBJECT_ID], N'OBJECT_DEFINITION' AS [COL_NAME] FROM dbo.Users")["allowed"]
     assert service().validate("SELECT DB_NAME()")["allowed"]
+
+
+@pytest.mark.parametrize("analyzer", ["regex", "ast"])
+@pytest.mark.parametrize("version", ["ALL", "AS OF '2026-01-01'"])
+def test_temporal_history_scope_is_unresolved_and_never_executed(analyzer, version):
+    from unittest.mock import patch
+    from sqlserver_semantic_mcp.services.query_service import QueryService
+
+    svc = service(analyzer=analyzer, scope=PolicyScope(
+        allowed_tables=["dbo.Users"], denied_tables=["dbo.UsersHistory"],
+    ))
+    assert svc.validate("SELECT * FROM dbo.Users")["allowed"]
+    sql = f"SELECT * FROM dbo.Users FOR SYSTEM_TIME {version}"
+    with patch("sqlserver_semantic_mcp.services.query_service.open_connection") as connect:
+        result = QueryService(svc, svc._cfg).execute_query(sql)
+    assert result["validation"]["allowed"] is False
+    assert result["executed"] is False
+    connect.assert_not_called()
+
+
+@pytest.mark.parametrize("analyzer", ["regex", "ast"])
+@pytest.mark.parametrize("sql", [
+    "CREATE EXTERNAL TABLE dbo.Users(Id INT) WITH "
+    "(LOCATION = '/users', DATA_SOURCE = remote, FILE_FORMAT = csv)",
+    "CREATE EXTERNAL VIEW dbo.Users AS SELECT 1",
+])
+def test_external_ddl_cannot_be_authorized_as_local_target(analyzer, sql):
+    from unittest.mock import patch
+    from sqlserver_semantic_mcp.services.query_service import QueryService
+
+    svc = service(analyzer=analyzer, operations=PolicyOperations(create=True),
+                  scope=PolicyScope(allowed_tables=["dbo.Users"]))
+    assert svc.validate("CREATE TABLE dbo.Users(Id INT)")["allowed"]
+    with patch("sqlserver_semantic_mcp.services.query_service.open_connection") as connect:
+        result = QueryService(svc, svc._cfg).execute_query(sql)
+    assert result["validation"]["allowed"] is False
+    assert result["executed"] is False
+    connect.assert_not_called()
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT FileTableRootPath(N'dbo.Secrets')",
+    "SELECT STATS_DATE(1, 2)",
+])
+@pytest.mark.parametrize("scope", [
+    PolicyScope(allowed_tables=["dbo.Users"]),
+    PolicyScope(denied_tables=["dbo.Secrets"]),
+])
+def test_additional_metadata_functions_require_unrestricted_scope(sql, scope):
+    svc = service(scope=scope)
+    assert svc.validate(sql)["allowed"] is False
+    assert service().validate(sql)["allowed"] is True
+    assert svc.validate("SELECT ABS(-1), LOWER('ABC'), LEN('abc') FROM dbo.Users")["allowed"]
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM dbo.Users FOR SYSTEM_TIME BETWEEN '2026-01-01' AND '2026-02-01'",
+    "WITH c AS (SELECT * FROM dbo.Users FOR SYSTEM_TIME ALL) SELECT * FROM c",
+    "SELECT 1 WHERE EXISTS(SELECT 1 FROM dbo.Users FOR SYSTEM_TIME AS OF '2026-01-01')",
+    "CREATE EXTERNAL TABLE dbo.Users(Id INT) WITH "
+    "(DATA_SOURCE = remote, SCHEMA_NAME = N'private', OBJECT_NAME = N'UsersHistory')",
+    "CREATE EXTERNAL VIEW dbo.Users AS SELECT 1",
+])
+def test_opaque_sources_fail_closed_even_without_scope_restrictions(sql):
+    svc = service(operations=PolicyOperations(create=True))
+    assert svc.validate(sql)["allowed"] is False
+
+
+def test_opaque_source_names_in_identifiers_and_literals_are_safe():
+    svc = service(scope=PolicyScope(allowed_tables=["dbo.Users"]))
+    assert svc.validate(
+        "SELECT [FileTableRootPath], [STATS_DATE], N'FOR SYSTEM_TIME ALL', "
+        "N'CREATE EXTERNAL TABLE' FROM dbo.Users"
+    )["allowed"] is True

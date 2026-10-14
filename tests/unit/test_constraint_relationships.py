@@ -240,3 +240,62 @@ async def test_target_uniqueness_needs_live_unfiltered_key_evidence(tmp_path, ta
     assert edge["cardinality"]["to_max"] is None
     reversed_path = await rel.find_join_path(path, "db", "dbo", "Parent", "dbo", "Child")
     assert reversed_path[0]["cardinality"]["from_max"] is None
+
+
+@pytest.mark.asyncio
+async def test_xml_spatial_indexes_survive_snapshot_and_full_describe_without_unique_evidence(tmp_path):
+    import sqlite3
+    import sqlglot
+    from sqlserver_semantic_mcp.config import Config
+    from sqlserver_semantic_mcp.infrastructure.cache.structural import fetch_snapshot_from_server
+    from sqlserver_semantic_mcp.infrastructure.queries import metadata_queries as queries
+    from sqlserver_semantic_mcp.infrastructure.queries.comment_queries import GET_COMMENTS
+    from sqlserver_semantic_mcp.services.metadata_service import describe_table
+
+    # Evaluate the query's real WHERE and uniqueness expression against catalog
+    # rows. No SQL Server connection is used. A malformed special-index unique
+    # flag must not become key evidence when its key_ordinal is zero.
+    catalog = sqlite3.connect(":memory:")
+    catalog.execute("CREATE TABLE indexes(name TEXT, type INTEGER, is_unique INTEGER)")
+    catalog.execute("CREATE TABLE index_columns(key_ordinal INTEGER, is_included_column INTEGER)")
+    catalog.execute("INSERT INTO index_columns VALUES(0,0)")
+    parsed = sqlglot.parse_one(queries.GET_INDEXES, read="tsql")
+    predicate = parsed.args["where"].this.sql(dialect="sqlite")
+    unique_expression = parsed.expressions[3].sql(dialect="sqlite")
+    indexes = []
+    for name, kind in [("IX_Xml", 3), ("IX_Spatial", 4), ("IX_Columnstore", 5)]:
+        catalog.execute("DELETE FROM indexes")
+        catalog.execute("INSERT INTO indexes VALUES(?,?,1)", (name, kind))
+        result = catalog.execute(f"SELECT {unique_expression} FROM indexes i CROSS JOIN index_columns ic WHERE {predicate} GROUP BY i.name").fetchone()
+        if result is not None and result[0] is not None:
+            indexes.append(("dbo", "Child", name, result[0], 0, '["ParentId"]', 0, 0))
+    catalog.close()
+
+    class Cursor:
+        def execute(self, query):
+            self.rows = {
+                queries.GET_TABLES: [("dbo", "Child"), ("dbo", "Parent")],
+                queries.GET_COLUMNS: [("dbo", "Child", "ParentId", "int", None, 0, None, 1)],
+                queries.GET_PRIMARY_KEYS: [],
+                queries.GET_FOREIGN_KEYS: [_fk("Child", "ParentId", "Parent", "Id", 1)],
+                queries.GET_INDEXES: indexes + [("dbo", "Parent", "UQ_Parent", 1, 0, '["Id"]', 0, 0)],
+                queries.GET_OBJECTS: [], GET_COMMENTS: [],
+            }[query]
+        def fetchall(self):
+            return self.rows
+        def close(self):
+            pass
+    class Connection:
+        def cursor(self):
+            return Cursor()
+    cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
+    snapshot = fetch_snapshot_from_server(cfg, conn=Connection())
+    path = str(tmp_path / "special-indexes.db")
+    await init_store(path)
+    await write_structural_snapshot(path, "db", snapshot)
+    full = await describe_table(path, "db", "dbo", "Child")
+    assert {row["index_name"] for row in full["indexes"]} == {"IX_Xml", "IX_Spatial"}
+    assert all(row["columns"] == ["ParentId"] for row in full["indexes"])
+    assert all(row["is_unique"] is False for row in full["indexes"])
+    edge = (await rel.get_table_relationships(path, "db", "dbo", "Child"))[0]
+    assert edge["type"] == "many_to_one"

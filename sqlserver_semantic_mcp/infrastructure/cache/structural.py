@@ -15,7 +15,10 @@ from ..queries.metadata_queries import (
     GET_FOREIGN_KEYS, GET_INDEXES, GET_OBJECTS,
 )
 from ..queries.comment_queries import GET_COMMENTS
-from .probe import SchemaFingerprints, fetch_fingerprints, write_fingerprints, filter_fingerprints
+from .probe import (
+    SchemaFingerprints, diff_fingerprints, fetch_fingerprints,
+    write_fingerprints, filter_fingerprints,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,38 @@ async def read_schema_version(db_path: str, database: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+async def _invalidate_fingerprint_changes(
+    db: aiosqlite.Connection, database: str, fresh: SchemaFingerprints,
+) -> int:
+    """Invalidate definitions against the baseline in this snapshot transaction."""
+    cursor = await db.execute(
+        "SELECT kind,schema_name,name,object_type,fingerprint FROM sc_fingerprints "
+        "WHERE database_name=?", (database,),
+    )
+    tables, objects = {}, {}
+    for kind, schema, name, object_type, fingerprint in await cursor.fetchall():
+        if kind == "table":
+            tables[(schema, name)] = fingerprint
+        else:
+            objects[(schema, name, object_type)] = fingerprint
+    diff = diff_fingerprints(tables, objects, fresh)
+    # Added fingerprints can belong to legacy cached definitions whose
+    # bodies were never verified against a persisted module baseline.
+    keys = {(schema, name) for schema, name, _type
+            in (*diff.changed_objects, *diff.added_objects)}
+    for table in (*diff.changed_tables, *diff.removed_tables):
+        keys.update(fresh.table_dependents.get(table, []))
+    marked = 0
+    for schema, name in sorted(keys):
+        cursor = await db.execute(
+            "UPDATE sem_object_definitions SET status='dirty' "
+            "WHERE database_name=? AND schema_name=? AND object_name=? AND status<>'dirty'",
+            (database, schema, name),
+        )
+        marked += cursor.rowcount or 0
+    return marked
+
+
 async def write_structural_snapshot(
     db_path: str, database: str, snap: StructuralSnapshot,
     fingerprints: Optional[SchemaFingerprints] = None,
@@ -128,6 +163,7 @@ async def write_structural_snapshot(
     object_hash = compute_object_hash(snap.objects)
     comment_hash = compute_comment_hash(snap.comments)
     captured_at = datetime.now(timezone.utc).isoformat()
+    objects_marked = 0
 
     async with aiosqlite.connect(db_path) as db:
         await db.execute("BEGIN")
@@ -234,6 +270,7 @@ async def write_structural_snapshot(
             )
 
             if fingerprints is not None:
+                objects_marked = await _invalidate_fingerprint_changes(db, database, fingerprints)
                 await write_fingerprints(db, database, fingerprints)
 
             await db.commit()
@@ -246,6 +283,7 @@ async def write_structural_snapshot(
         "object_hash": object_hash,
         "comment_hash": comment_hash,
         "captured_at": captured_at,
+        "objects_marked_dirty": objects_marked,
     }
 
 

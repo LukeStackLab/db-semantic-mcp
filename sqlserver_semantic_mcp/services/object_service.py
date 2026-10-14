@@ -20,7 +20,9 @@ from ..infrastructure.queries.object_queries import (
 from ..policy.analyzer import (
     _strip_comments, _split_statements, _detect_operation, _IDENT,
 )
-from ..policy.intents.ast_analyzer import _METADATA_FUNCTIONS, _StrictTSQL
+from ..policy.intents.ast_analyzer import (
+    _METADATA_FUNCTIONS, _StrictTSQL, _check_opaque_sources,
+)
 from ..policy.scope import split_object_name, table_reference
 from .policy_service import PolicyService
 
@@ -231,6 +233,7 @@ def _definition_allowed(
         for statement in statements:
             if statement is None:
                 continue
+            _check_opaque_sources(statement)
             if any(isinstance(node, (exp.Command, exp.Execute)) for node in statement.walk()):
                 return False
             metadata_functions = {

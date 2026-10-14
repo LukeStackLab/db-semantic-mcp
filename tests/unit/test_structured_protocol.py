@@ -108,3 +108,202 @@ async def test_mcp_memory_transport_validates_structured_results(cfg):
                 assert failed.isError is True
                 assert "invalid fixture argument" in failed.structuredContent["error"]
             tasks.cancel_scope.cancel()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["tool", "resource"])
+async def test_interleaved_snapshot_retains_payload_freshness(cfg, monkeypatch, endpoint):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from pydantic import AnyUrl
+    from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
+    from sqlserver_semantic_mcp.services import metadata_service
+    from sqlserver_semantic_mcp.server.resources import schema as resources
+
+    cfg.cache_enabled = True
+    cfg.connection_name = None
+    old = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    snap = structural.StructuralSnapshot(
+        tables=[("dbo", "Users")],
+        columns=[("dbo", "Users", "Id", "int", None, 0, None, 1)],
+        primary_keys=[], foreign_keys=[], indexes=[], objects=[], comments=[],
+    )
+    await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
+    async with aiosqlite.connect(cfg.cache_path) as db:
+        await db.execute("UPDATE schema_version SET captured_at=?", (old,))
+        await db.commit()
+    original_freshness = revalidation.cache_freshness
+
+    async def interleave(_cfg):
+        # Payload has already read the old columns and snapshot identity.
+        snap.columns = [("dbo", "Users", "Id", "bigint", None, 0, None, 1)]
+        await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
+        return await original_freshness(_cfg)
+
+    monkeypatch.setattr(revalidation, "maybe_revalidate", AsyncMock())
+    monkeypatch.setattr(revalidation, "cache_freshness", interleave)
+    monkeypatch.setattr(resources, "get_context", lambda: SimpleNamespace(cfg=cfg, policy=None))
+    if endpoint == "tool":
+        async def handler(args):
+            return await metadata_service.describe_table(cfg.cache_path, "db", "dbo", "Users")
+        server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
+        result = await server._call_tool_result("sample", {})
+        assert result.isError is False
+        payload = result.structuredContent
+        assert payload == json.loads(result.content[0].text)
+    else:
+        payload = json.loads(await resources.read_resource(AnyUrl("semantic://schema/tables/dbo.Users")))
+    assert payload["columns"][0]["data_type"] == "int"
+    assert payload["cache"]["captured_at"] == old
+    assert payload["cache"]["stale"] is True
+    assert payload["cache"]["age_seconds"] >= 86400
+    assert payload["cache"]["refreshing"] is False
+
+
+@pytest.mark.asyncio
+async def test_snapshot_stale_flag_survives_compaction_and_elapsed_ttl(cfg, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock
+
+    cfg.cache_enabled = True
+    captured_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    monkeypatch.setattr(server.revalidation, "maybe_revalidate", AsyncMock())
+    monkeypatch.setattr(server.revalidation, "cache_freshness", AsyncMock(return_value={
+        "captured_at": datetime.now(timezone.utc).isoformat(), "stale": False, "age_seconds": 0,
+        "refreshing": True, "refresh_failed": False,
+    }))
+
+    async def handler(args):
+        # This flag records the read. A delayed response can cross its TTL.
+        return {"columns": [{"data_type": "int"}],
+                "cache": {"hit": True, "captured_at": captured_at, "stale": False}}
+
+    server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
+    result = await server._call_tool_result("sample", {})
+    assert result.isError is False
+    assert result.structuredContent["cache"]["captured_at"] == captured_at
+    assert result.structuredContent["cache"]["stale"] is False
+    assert result.structuredContent["cache"]["age_seconds"] >= 86400
+    assert result.structuredContent["cache"]["refreshing"] is True
+
+
+@pytest.mark.asyncio
+async def test_classification_resource_without_identity_does_not_claim_latest_snapshot(cfg, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from pydantic import AnyUrl
+    from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
+    from sqlserver_semantic_mcp.services import semantic_service
+    from sqlserver_semantic_mcp.server.resources import schema as resources
+
+    cfg.cache_enabled = True
+    cfg.connection_name = None
+    old_capture = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    snap = structural.StructuralSnapshot(
+        tables=[("dbo", "T")],
+        columns=[("dbo", "T", name, "nvarchar", 20, 0, None, i)
+                 for i, name in enumerate(("Code", "Name"), 1)],
+        primary_keys=[], foreign_keys=[], indexes=[], objects=[], comments=[],
+    )
+    await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
+    async with aiosqlite.connect(cfg.cache_path) as db:
+        await db.execute("UPDATE schema_version SET captured_at=?", (old_capture,))
+        await db.commit()
+    original_freshness = revalidation.cache_freshness
+
+    async def interleave(_cfg):
+        snap.columns = [("dbo", "T", name, "int", None, 0, None, i)
+                        for i, name in enumerate(("X", "Y", "Z"), 1)]
+        await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
+        return await original_freshness(_cfg)
+
+    monkeypatch.setattr(revalidation, "maybe_revalidate", AsyncMock())
+    monkeypatch.setattr(revalidation, "cache_freshness", interleave)
+    monkeypatch.setattr(resources, "get_context", lambda: SimpleNamespace(cfg=cfg, policy=None))
+    payload = json.loads(await resources.read_resource(AnyUrl("semantic://analysis/classification/dbo.T")))
+    current = await semantic_service.classify_table(cfg.cache_path, "db", "dbo", "T")
+    assert payload["type"] == "lookup"
+    assert current["type"] == "dimension"
+    assert payload["cache"]["snapshot_unknown"] is True
+    assert {"captured_at", "age_seconds", "stale"}.isdisjoint(payload["cache"])
+    assert payload["cache"]["latest_snapshot"]["captured_at"] != old_capture
+    assert payload["cache"]["latest_snapshot"]["stale"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["tool", "resource"])
+async def test_metadata_list_array_without_identity_uses_latest_snapshot_envelope(cfg, monkeypatch, endpoint):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from pydantic import AnyUrl
+    from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
+    from sqlserver_semantic_mcp.services import metadata_service
+    from sqlserver_semantic_mcp.server.resources import schema as resources
+
+    cfg.cache_enabled = True
+    cfg.connection_name = None
+    snap = structural.StructuralSnapshot(tables=[("dbo", "Old")], columns=[], primary_keys=[],
+                                         foreign_keys=[], indexes=[], objects=[], comments=[])
+    await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
+    original_freshness = revalidation.cache_freshness
+
+    async def interleave(_cfg):
+        snap.tables = [("dbo", "New")]
+        await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
+        return await original_freshness(_cfg)
+
+    monkeypatch.setattr(revalidation, "maybe_revalidate", AsyncMock())
+    monkeypatch.setattr(revalidation, "cache_freshness", interleave)
+    monkeypatch.setattr(resources, "get_context", lambda: SimpleNamespace(cfg=cfg, policy=None))
+    if endpoint == "tool":
+        async def handler(args):
+            return await metadata_service.list_tables(cfg.cache_path, "db")
+        server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
+        result = await server._call_tool_result("sample", {})
+        assert result.isError is False
+        payload = result.structuredContent
+        assert payload == json.loads(result.content[0].text)
+    else:
+        payload = json.loads(await resources.read_resource(AnyUrl("semantic://schema/tables")))
+    expected_tables = ([{"table": "dbo.Old"}] if endpoint == "tool"
+                       else [{"schema_name": "dbo", "table_name": "Old"}])
+    assert payload["data"] == expected_tables
+    assert await metadata_service.list_tables(cfg.cache_path, "db") == [{"schema_name": "dbo", "table_name": "New"}]
+    assert payload["cache"]["snapshot_unknown"] is True
+    assert {"captured_at", "age_seconds", "stale"}.isdisjoint(payload["cache"])
+    assert payload["cache"]["latest_snapshot"]["stale"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["tool", "resource"])
+@pytest.mark.parametrize("data", [{"executed": True, "rows_affected": 1}, [{"table": "dbo.T"}]])
+async def test_identity_free_payload_survives_freshness_failure(cfg, monkeypatch, endpoint, data):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from pydantic import AnyUrl
+    from sqlserver_semantic_mcp.server.resources import schema as resources
+
+    cfg.cache_enabled = True
+    cfg.connection_name = None
+    monkeypatch.setattr(server.revalidation, "maybe_revalidate", AsyncMock())
+    monkeypatch.setattr(server.revalidation, "cache_freshness", AsyncMock(side_effect=RuntimeError("cache unavailable")))
+    if endpoint == "tool":
+        async def handler(args):
+            return data
+        server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
+        result = await server._call_tool_result("sample", {})
+        assert result.isError is False
+        payload = result.structuredContent
+        assert payload == json.loads(result.content[0].text)
+    else:
+        monkeypatch.setattr(resources, "get_context", lambda: SimpleNamespace(cfg=cfg))
+        monkeypatch.setattr(resources, "_read_resource_payload", AsyncMock(return_value=json.dumps(data)))
+        payload = json.loads(await resources.read_resource(AnyUrl("semantic://summary/database")))
+    expected_data = payload["data"] if isinstance(data, list) else {key: payload[key] for key in data}
+    assert expected_data == data
+    assert payload["cache"]["snapshot_unknown"] is True
+    assert payload["cache"]["freshness_unknown"] is True
+    assert payload["cache"]["latest_snapshot"] == {"freshness_unknown": True}
+    assert {"captured_at", "age_seconds", "stale"}.isdisjoint(payload["cache"])

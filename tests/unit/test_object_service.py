@@ -234,3 +234,58 @@ def test_definition_authorized_root_module_target_is_allowed():
     policy._policy = PolicyProfile(profile_name="test", scope=PolicyScope(
         allowed_databases=["app"], allowed_schemas=["dbo"], allowed_tables=["dbo.Public"]))
     assert _definition_allowed("CREATE PROCEDURE dbo.Public AS SELECT 1", policy, "app", "dbo", "Public") is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("definition", [
+    "CREATE VIEW dbo.Public AS SELECT * FROM dbo.Users FOR SYSTEM_TIME ALL",
+    "CREATE VIEW dbo.Public AS SELECT * FROM dbo.Users FOR SYSTEM_TIME AS OF '2026-01-01'",
+    "CREATE PROCEDURE dbo.Public AS CREATE EXTERNAL TABLE dbo.Users(Id INT) WITH "
+    "(LOCATION = '/users', DATA_SOURCE = remote, FILE_FORMAT = csv)",
+    "CREATE EXTERNAL VIEW dbo.Public AS SELECT 1",
+    "CREATE VIEW dbo.Public AS SELECT FileTableRootPath(N'dbo.UsersHistory')",
+    "CREATE PROCEDURE dbo.Public AS SELECT STATS_DATE(1, 2)",
+])
+async def test_cached_opaque_sources_and_metadata_definitions_are_withheld(tmp_path, definition):
+    from sqlserver_semantic_mcp.config import Config
+    from sqlserver_semantic_mcp.infrastructure.cache.semantic import upsert_object_definition
+    from sqlserver_semantic_mcp.policy.models import PolicyProfile, PolicyScope
+    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+
+    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="app",
+                 cache_path=str(tmp_path / "opaque.db"))
+    policy = PolicyService(cfg)
+    policy._policy = PolicyProfile(profile_name="test", scope=PolicyScope(
+        allowed_tables=["dbo.Public", "dbo.Users"], denied_tables=["dbo.UsersHistory"],
+    ))
+    object_type = "PROCEDURE" if definition.startswith("CREATE PROCEDURE") else "VIEW"
+    await init_store(cfg.cache_path)
+    version = await write_structural_snapshot(cfg.cache_path, "app", StructuralSnapshot(
+        tables=[], columns=[], primary_keys=[], foreign_keys=[], indexes=[],
+        objects=[("dbo", "Public", object_type)], comments=[],
+    ))
+    await upsert_object_definition(cfg.cache_path, "app", "dbo", "Public", object_type,
+        object_hash=version["object_hash"], status="ready", definition=definition,
+        dependencies=["dbo.Users"])
+    with patch("sqlserver_semantic_mcp.services.object_service.fetch_one") as fetch:
+        result = await describe_object("dbo", "Public", object_type, cfg=cfg, policy=policy)
+    fetch.assert_not_called()
+    assert result["definition"] is None
+    assert result["definition_withheld"] is True
+    assert result["dependencies"] == ["dbo.Users"]
+
+
+def test_restricted_definition_preserves_safe_scalar_queries():
+    from sqlserver_semantic_mcp.config import Config
+    from sqlserver_semantic_mcp.policy.models import PolicyProfile, PolicyScope
+    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+    from sqlserver_semantic_mcp.services.object_service import _definition_allowed
+
+    policy = PolicyService(Config(_env_file=None, mssql_server="fake", mssql_database="app"))
+    policy._policy = PolicyProfile(profile_name="test", scope=PolicyScope(
+        allowed_tables=["dbo.Public", "dbo.Users"],
+    ))
+    assert _definition_allowed(
+        "CREATE VIEW dbo.Public AS SELECT ABS(-1), LOWER('ABC'), LEN('abc') FROM dbo.Users",
+        policy, "app", "dbo", "Public",
+    ) is True

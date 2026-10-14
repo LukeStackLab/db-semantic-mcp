@@ -121,7 +121,8 @@ MCP 的 policy 不會授予 SQL Server 權限。每組連線應使用符合用�
 - `row_count` 表示本次取得且保留的列數；`returned_row_count` 表示回應實際附帶的列數。只有讀完結果集時，`total_row_count` 才是精確總數，否則為 `null`。`truncated` 表示結果仍有省略。需要完整總數時，明確查詢 `COUNT_BIG`。
 - `describe_table(detail="standard", columns=["Id", "Amount"])` 可只取需要的欄位，保留精確 SQL 型別、完整 `join_constraints` 與必要 JOIN 欄位。產生 SQL 前先確認欄位與完整外鍵條件。
 - 複合外鍵以全部 `column_pairs` 表示。存在多個合理的 FK 角色時，`find_join_path` 回傳候選與 `ambiguous`，不自動選擇。分數是 heuristic；唯一性證據不足時 cardinality 為未知。
-- 中文搜尋使用本機名稱、欄位、註解與別名。可在 `connection.json` 設定 `"discovery_aliases": {"供應商": ["Vendor", "Supplier"]}`，不呼叫外部模型。
+- `detail="full"` 保留 XML／spatial 索引資訊；cardinality 推論仍只採用有效的唯一鍵證據。分類依目前 scope 可見的 FK 計算，受限分類不跨 scope 共用 cache。
+- 中文搜尋使用本機名稱、欄位、註解與別名。明確指定的 `schema.table` 會優先於一般文字比對。可在 `connection.json` 設定 `"discovery_aliases": {"供應商": ["Vendor", "Supplier"]}`，不呼叫外部模型。
 - `plan_or_execute_query(validate_result_schema=true)` 可在執行前向 SQL Server 檢查結果 metadata。這會增加一次資料庫查詢；暫存表等語法可能無法描述。預設不啟用，也不保證業務答案正確。
 
 新連線可在安裝時選擇工具集合：
@@ -144,13 +145,13 @@ sqlserver-semantic-mcp setup --tool-profile explore
 <details>
 <summary><b>授權邊界、快取與相容性</b></summary>
 
-所有 SQL 授權固定使用 T-SQL AST，並檢查全部 statement 與物件來源。無法確認的語法、remote sources、動態 SQL、交易控制及 `SELECT INTO` 會被拒絕。執行目前只接受單一 statement；`validate` 可分析 policy 允許的 batch。即使保留 legacy `INTENT_ANALYZER=regex`，授權仍使用 AST。
+所有 SQL 授權固定使用 T-SQL AST，並檢查全部 statement 與物件來源。無法確認的語法、remote sources、動態 SQL、交易控制及 `SELECT INTO` 會被拒絕。`FOR SYSTEM_TIME` 與 external DDL 暫不支援；必須能解析並授權實際歷史表或外部來源後才能開放。執行目前只接受單一 statement；`validate` 可分析 policy 允許的 batch。即使保留 legacy `INTENT_ANALYZER=regex`，授權仍使用 AST。
 
-SQL、metadata、resources、FK 與物件依賴共用 scope。`allowed_tables` 可使用表名、`schema.name` 或 `database.schema.name`；名稱含點或右括號時使用 T-SQL quoted identifiers。allow 保留大小寫以避免放寬 case-sensitive 資料庫權限；deny 會拒絕大小寫變體。受限 scope 會保守拒絕可能另行讀取物件 metadata 的函式。正式環境仍須由專用 SQL 帳號限制實際存取。
+SQL、metadata、resources、FK 與物件依賴共用 scope。`allowed_tables` 可使用表名、`schema.name` 或 `database.schema.name`；名稱含點或右括號時使用 T-SQL quoted identifiers。allow 保留大小寫以避免放寬 case-sensitive 資料庫權限；deny 會拒絕大小寫變體。受限 scope 會保守拒絕可能另行讀取物件 metadata 的函式，包括 `FileTableRootPath` 與 `STATS_DATE`。正式環境仍須由專用 SQL 帳號限制實際存取。
 
 明確指定但遺失或無效的 legacy policy 會停止啟動，不再回退至無 scope 的 readonly。未知 policy 欄位也會拒絕。server strict affected-row cap 不能被 caller 的 `report` 降低。寫入已確認 commit 後，即使關閉連線失敗仍保留成功結果。若 commit／rollback 回覆不確定，會標示 `transaction_state="unknown"` 與 `automatic_retry_allowed=false`；此時 `executed=false` 不代表已回滾，必須先確認資料庫結果，不能直接重試。無法確認安全範圍的物件定義會省略，並附 `definition_withheld`／`dependencies_omitted`。
 
-既有 SQLite cache 自動 migration。缺少 FK constraint identity 或有效 unique index 證據的舊 metadata 會標示不完整；重新整理後才取得完整判斷。Schema／comments snapshot 預設最多 300 秒，工具與 resources 都會觸發 single-flight 背景更新；回應 `cache` 提供擷取時間及 stale／refreshing 狀態。資料庫無法連線時可讀舊 cache，並明示狀態。
+既有 SQLite cache 自動 migration。缺少 FK constraint identity 或有效 unique index 證據的舊 metadata 會標示不完整；重新整理後才取得完整判斷。Schema／comments snapshot 預設最多 300 秒，工具與 resources 都會觸發 single-flight 背景更新；回應 `cache` 的擷取時間與 stale 狀態對應本次回傳內容使用的 snapshot；背景更新不會把舊內容標為新鮮。refreshing／refresh_failed 則反映目前更新狀態。內容未提供 snapshot 身分時，會標示 `cache.snapshot_unknown=true`，最新快取狀態另放在 `cache.latest_snapshot`；該時間不代表內容的 snapshot。每次完整更新都會比較舊 fingerprint，並同步失效 body 已變更的物件定義與依賴分析，包含手動更新。資料庫無法連線時可讀舊 cache，並明示狀態。
 
 每個程序預設最多 4 個 DB worker。取消等候不會立即中止同步 driver；工作完成並關閉連線後才釋放容量。`connection.json` 可設定 `db_worker_limit` 與 `schema_cache_ttl_s`。`tool_metrics` 記錄 bytes、耗時分位數、worker 等待、DB 工作耗時、取得列數、可觀察的 cache hit 與錯誤類型，不記錄 SQL、資料列或密碼。DB 工作耗時包含連線與讀取，並非 SQL Server CPU 時間。
 

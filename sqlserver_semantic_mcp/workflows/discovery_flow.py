@@ -104,7 +104,8 @@ async def discover_relevant_tables(goal: str, *, schemas: Optional[list[str]] = 
         row = {"table": f"{table['schema_name']}.{table['table_name']}",
                "score": round(score, 3), "why": reasons}
         scored.append((row, table))
-    scored.sort(key=lambda item: (-item[0]["score"], item[0]["table"]))
+    scored.sort(key=lambda item: (item[0]["table"].casefold() not in tokens,
+                                  -item[0]["score"], item[0]["table"]))
     top = scored[:limit]
     if classify:
         for row, table in top:

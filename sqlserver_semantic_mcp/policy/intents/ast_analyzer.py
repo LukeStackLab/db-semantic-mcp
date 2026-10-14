@@ -44,12 +44,12 @@ _METADATA_FUNCTIONS = {
     "ASSEMBLYPROPERTY", "COL_LENGTH", "COL_NAME", "COLUMNPROPERTY",
     "DATABASEPROPERTY", "DATABASEPROPERTYEX", "SERVERPROPERTY",
     "DB_ID", "DB_NAME", "FILE_ID", "FILE_IDEX", "FILE_NAME", "FILEGROUP_ID",
-    "FILEGROUP_NAME", "FILEGROUPPROPERTY", "FILEPROPERTY",
+    "FILEGROUP_NAME", "FILEGROUPPROPERTY", "FILEPROPERTY", "FILETABLEROOTPATH",
     "FULLTEXTCATALOGPROPERTY", "FULLTEXTSERVICEPROPERTY", "INDEX_COL",
     "IDENT_CURRENT", "IDENT_SEED", "IDENT_INCR", "HAS_PERMS_BY_NAME",
     "INDEXKEY_PROPERTY", "INDEXPROPERTY", "OBJECT_DEFINITION", "OBJECT_ID",
     "OBJECT_NAME", "OBJECT_SCHEMA_NAME", "OBJECTPROPERTY", "OBJECTPROPERTYEX",
-    "SCHEMA_ID", "SCHEMA_NAME", "TYPE_ID", "TYPE_NAME", "TYPEPROPERTY",
+    "SCHEMA_ID", "SCHEMA_NAME", "STATS_DATE", "TYPE_ID", "TYPE_NAME", "TYPEPROPERTY",
     # SQLGlot normalizes SCHEMA_NAME to CurrentSchema.
     "CURRENT_SCHEMA", "CURRENT_DATABASE", "SESSION_CONTEXT", "CONTEXT_INFO",
 }
@@ -150,7 +150,19 @@ def _references(root: exp.Expression) -> list[ObjectReference]:
     return list(dict.fromkeys(refs))
 
 
+def _check_opaque_sources(root: exp.Expression) -> None:
+    """SQL and definition checks cannot resolve history or external sources."""
+    for node in root.walk():
+        if isinstance(node, exp.Version):
+            # The named current table is not sufficient evidence for its
+            # physical history table. Reject every version until resolved.
+            raise ValueError("Temporal object scope cannot be verified")
+        if isinstance(node, exp.ExternalProperty):
+            raise ValueError("External object scope cannot be verified")
+
+
 def _check_tree(root: exp.Expression) -> list[SqlOperation]:
+    _check_opaque_sources(root)
     op = _ROOT_OPERATIONS.get(type(root))
     if op is None:
         raise ValueError(f"Unsupported SQL statement: {type(root).__name__}")

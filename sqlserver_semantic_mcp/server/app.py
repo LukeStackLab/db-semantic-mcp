@@ -155,6 +155,7 @@ async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
             await revalidation.maybe_revalidate(cfg)
         result = await handler(arguments or {})
         error_category = _failure_category(result)
+        cache_metadata = result.get("cache", {}) if isinstance(result, dict) else {}
         shaped = compact(result)
         array_length = len(shaped) if isinstance(shaped, list) else None
         if not isinstance(shaped, dict):
@@ -163,11 +164,15 @@ async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
             shaped["source"] = {"connection": cfg.connection_name, "database": cfg.mssql_database}
         if cfg.cache_enabled and name not in {"tool_metrics", "get_execution_policy"}:
             try:
-                shaped["cache"] = {**shaped.get("cache", {}), **await revalidation.cache_freshness(cfg)}
+                shaped["cache"] = revalidation.merge_cache_metadata(
+                    cfg, cache_metadata, await revalidation.cache_freshness(cfg),
+                )
             except Exception:
                 # Cache diagnostics must never turn an already committed
                 # operation into a failure that encourages a duplicate write.
-                shaped["cache"] = {**shaped.get("cache", {}), "freshness_unknown": True}
+                shaped["cache"] = revalidation.merge_cache_metadata(
+                    cfg, cache_metadata, {"freshness_unknown": True},
+                )
                 logger.warning("Cache freshness unavailable for tool %s", name)
         # Normalize values exactly once; JSON text and structuredContent agree.
         text = json.dumps(shaped, ensure_ascii=False, default=str, separators=(",", ":"))
