@@ -4,7 +4,7 @@ from typing import Optional
 
 from ..config import Config, get_config
 from ..services import semantic_service
-from .cache.semantic import list_pending_table_analyses
+from .cache.semantic import list_pending_table_analyses, record_table_analysis_failure
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,16 @@ async def run_background_fill_once(cfg: Optional[Config] = None) -> int:
             await semantic_service.classify_table(
                 cfg.cache_path, cfg.mssql_database, s, t, force=True,
             )
-        except Exception:
-            logger.exception("Background classify failed for %s.%s", s, t)
+        except Exception as exc:
+            message = str(exc)
+            if cfg.mssql_password:
+                message = message.replace(cfg.mssql_password, "***")
+            await record_table_analysis_failure(
+                cfg.cache_path, cfg.mssql_database, s, t,
+                error_message=message, retry_base_s=cfg.background_retry_base_s,
+                retry_max_s=cfg.background_retry_max_s,
+            )
+            logger.error("Background classify failed for %s.%s: %s", s, t, message)
     return len(pending)
 
 

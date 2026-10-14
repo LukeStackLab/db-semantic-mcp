@@ -114,6 +114,50 @@ MCP 的 policy 不會授予 SQL Server 權限。每組連線應使用符合用�
 
 減少 AI 成本時，先請 Agent 找相關資料表，再取必要欄位；查詢先看摘要或樣本，避免直接要求完整資料。可用 `tool_metrics` 查看工具回應的位元組大小，實際費用仍由 Client、模型與用量決定。啟用多個 MCP 可能增加工具描述的上下文，建議只在 Client 啟用需要的連線。
 
+<details>
+<summary><b>查詢、關聯與工具集合</b></summary>
+
+- `summary` 最多讀取 4 列並回傳前 3 列，保留 `SUM`、`COUNT` 等單列結果。`sample` 依預算讀取樣本及一列額外資料來判斷截斷；`rows`、`count_only` 依列數上限讀取。
+- `row_count` 表示本次取得且保留的列數；`returned_row_count` 表示回應實際附帶的列數。只有讀完結果集時，`total_row_count` 才是精確總數，否則為 `null`。`truncated` 表示結果仍有省略。需要完整總數時，明確查詢 `COUNT_BIG`。
+- `describe_table(detail="standard", columns=["Id", "Amount"])` 可只取需要的欄位，保留精確 SQL 型別、完整 `join_constraints` 與必要 JOIN 欄位。產生 SQL 前先確認欄位與完整外鍵條件。
+- 複合外鍵以全部 `column_pairs` 表示。存在多個合理的 FK 角色時，`find_join_path` 回傳候選與 `ambiguous`，不自動選擇。分數是 heuristic；唯一性證據不足時 cardinality 為未知。
+- 中文搜尋使用本機名稱、欄位、註解與別名。可在 `connection.json` 設定 `"discovery_aliases": {"供應商": ["Vendor", "Supplier"]}`，不呼叫外部模型。
+- `plan_or_execute_query(validate_result_schema=true)` 可在執行前向 SQL Server 檢查結果 metadata。這會增加一次資料庫查詢；暫存表等語法可能無法描述。預設不啟用，也不保證業務答案正確。
+
+新連線可在安裝時選擇工具集合：
+
+```bash
+sqlserver-semantic-mcp setup --tool-profile explore
+```
+
+| 集合 | 工具數 | 用途 |
+|---|---:|---|
+| `all`，預設 | 12 | 全部功能 |
+| `query` | 2 | 已知 SQL 的 policy 檢查與執行 |
+| `explore` | 8 | 找表、欄位與關聯，再執行查詢 |
+| `maintenance` | 3 | policy、快取更新與 metrics |
+
+既有配置可修改 `connection.json` 的 `tool_profile` 後重新啟動。省略 setup 的選項會保留原設定。工具集合不會授予資料庫權限。工具的 JSON 清單結果統一放在 `data`，並提供 MCP `structuredContent` 與 `outputSchema`；失敗使用 `isError`。
+
+</details>
+
+<details>
+<summary><b>授權邊界、快取與相容性</b></summary>
+
+所有 SQL 授權固定使用 T-SQL AST，並檢查全部 statement 與物件來源。無法確認的語法、remote sources、動態 SQL、交易控制及 `SELECT INTO` 會被拒絕。執行目前只接受單一 statement；`validate` 可分析 policy 允許的 batch。即使保留 legacy `INTENT_ANALYZER=regex`，授權仍使用 AST。
+
+SQL、metadata、resources、FK 與物件依賴共用 scope。`allowed_tables` 可使用表名、`schema.name` 或 `database.schema.name`；名稱含點或右括號時使用 T-SQL quoted identifiers。allow 保留大小寫以避免放寬 case-sensitive 資料庫權限；deny 會拒絕大小寫變體。受限 scope 會保守拒絕可能另行讀取物件 metadata 的函式。正式環境仍須由專用 SQL 帳號限制實際存取。
+
+明確指定但遺失或無效的 legacy policy 會停止啟動，不再回退至無 scope 的 readonly。未知 policy 欄位也會拒絕。server strict affected-row cap 不能被 caller 的 `report` 降低。寫入已確認 commit 後，即使關閉連線失敗仍保留成功結果。若 commit／rollback 回覆不確定，會標示 `transaction_state="unknown"` 與 `automatic_retry_allowed=false`；此時 `executed=false` 不代表已回滾，必須先確認資料庫結果，不能直接重試。無法確認安全範圍的物件定義會省略，並附 `definition_withheld`／`dependencies_omitted`。
+
+既有 SQLite cache 自動 migration。缺少 FK constraint identity 或有效 unique index 證據的舊 metadata 會標示不完整；重新整理後才取得完整判斷。Schema／comments snapshot 預設最多 300 秒，工具與 resources 都會觸發 single-flight 背景更新；回應 `cache` 提供擷取時間及 stale／refreshing 狀態。資料庫無法連線時可讀舊 cache，並明示狀態。
+
+每個程序預設最多 4 個 DB worker。取消等候不會立即中止同步 driver；工作完成並關閉連線後才釋放容量。`connection.json` 可設定 `db_worker_limit` 與 `schema_cache_ttl_s`。`tool_metrics` 記錄 bytes、耗時分位數、worker 等待、DB 工作耗時、取得列數、可觀察的 cache hit 與錯誤類型，不記錄 SQL、資料列或密碼。DB 工作耗時包含連線與讀取，並非 SQL Server CPU 時間。
+
+本次改善不包含回應 bytes／單欄長度硬上限，也未更動 TLS 行為。完整工具集因結構化契約增加描述內容；已知 SQL 可選 `query` 集合降低上下文。實際 Token 與效能須依 Client 及資料庫負載量測。執行環境需要 MCP Python SDK 1.27+。
+
+</details>
+
 ## 配置與維護
 
 每組配置位於 `connections/<MCP 名稱>/`，包含 `connection.json`、`policy.json` 與獨立快取。密碼優先保存於系統憑證庫。

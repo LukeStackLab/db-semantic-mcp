@@ -7,7 +7,14 @@ from typing import Any
 NULLABLE_FALSE_KEEP: frozenset[str] = frozenset({
     "is_nullable", "allowed", "executed", "found", "truncated",
     "readonly", "exceeded_cap",
+    "metadata_complete", "ambiguous", "result_complete", "rows_omitted",
+    "columns_omitted", "stale", "refreshing", "refresh_failed", "hit",
+    "definition_withheld", "dependencies_omitted", "nullable", "optional",
+    "automatic_retry_allowed",
 })
+
+NULL_KEEP = frozenset({"total_row_count"})
+EMPTY_KEEP = frozenset({"rows", "sample_rows", "candidates", "column_pairs", "data"})
 
 
 def _is_falsy_strippable(value: Any) -> bool:
@@ -65,6 +72,9 @@ def compact(obj: Any) -> Any:
         out: dict[str, Any] = {}
         for k, v in merged.items():
             v = compact(v)
+            if (k in NULL_KEEP and v is None) or (k in EMPTY_KEEP and v in ([], {})):
+                out[k] = v
+                continue
             if k in NULLABLE_FALSE_KEEP and v is False:
                 out[k] = v
                 continue

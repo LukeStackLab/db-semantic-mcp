@@ -34,6 +34,19 @@ class SchemaFingerprints:
     )
 
 
+def filter_fingerprints(cfg: Config, fingerprints: "SchemaFingerprints") -> "SchemaFingerprints":
+    """Never persist or compare out-of-scope catalog identities."""
+    from ...services.policy_service import PolicyService
+    policy = PolicyService(cfg)
+    allowed = lambda schema, name: policy.object_allowed(schema, name, cfg.mssql_database)
+    return SchemaFingerprints(
+        tables={key: value for key, value in fingerprints.tables.items() if allowed(*key)},
+        objects={key: value for key, value in fingerprints.objects.items() if allowed(*key[:2])},
+        table_dependents={key: [obj for obj in values if allowed(*obj)]
+                          for key, values in fingerprints.table_dependents.items() if allowed(*key)},
+    )
+
+
 @dataclass(frozen=True)
 class FingerprintDiff:
     changed_tables: list[TableKey]
@@ -116,9 +129,9 @@ def fetch_fingerprints(
         if tkey is not None and mkey is not None:
             table_dependents.setdefault(tkey, []).append(mkey[:2])
 
-    return SchemaFingerprints(
+    return filter_fingerprints(cfg, SchemaFingerprints(
         tables=tables, objects=objects, table_dependents=table_dependents,
-    )
+    ))
 
 
 def diff_fingerprints(

@@ -15,6 +15,12 @@ def test_r1_whitelist_preserves_is_nullable_false():
     assert compact({"is_nullable": False, "default_value": False}) == {"is_nullable": False}
 
 
+def test_unknown_transaction_keeps_retry_prohibition():
+    result = compact({"executed": False, "transaction_state": "unknown", "automatic_retry_allowed": False})
+    assert result["automatic_retry_allowed"] is False
+    assert result["executed"] is False
+
+
 def test_r2_merges_schema_and_table():
     assert compact({"schema_name": "dbo", "table_name": "Users", "type": "USER_TABLE"}) == {
         "table": "dbo.Users", "type": "USER_TABLE",

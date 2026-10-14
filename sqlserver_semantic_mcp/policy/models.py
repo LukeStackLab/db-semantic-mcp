@@ -1,7 +1,12 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class PolicyOperations(BaseModel):
+class _PolicyModel(BaseModel):
+    # A misspelled restriction must not become an unrestricted default.
+    model_config = ConfigDict(extra="forbid")
+
+
+class PolicyOperations(_PolicyModel):
     select:   bool = True
     insert:   bool = False
     update:   bool = False
@@ -14,7 +19,7 @@ class PolicyOperations(BaseModel):
     merge:    bool = False
 
 
-class PolicyConstraints(BaseModel):
+class PolicyConstraints(_PolicyModel):
     require_where_for_update: bool = True
     require_where_for_delete: bool = True
     require_top_for_select:   bool = False
@@ -24,20 +29,20 @@ class PolicyConstraints(BaseModel):
     query_timeout_seconds:    int  = Field(default=30, ge=1)
 
 
-class PolicyScope(BaseModel):
+class PolicyScope(_PolicyModel):
     allowed_databases: list[str] = Field(default_factory=list)
     allowed_schemas:   list[str] = Field(default_factory=list)
     allowed_tables:    list[str] = Field(default_factory=list)
     denied_tables:     list[str] = Field(default_factory=list)
 
 
-class PolicyProfile(BaseModel):
+class PolicyProfile(_PolicyModel):
     profile_name: str
     operations:   PolicyOperations  = Field(default_factory=PolicyOperations)
     constraints:  PolicyConstraints = Field(default_factory=PolicyConstraints)
     scope:        PolicyScope       = Field(default_factory=PolicyScope)
 
 
-class PolicyFile(BaseModel):
+class PolicyFile(_PolicyModel):
     active_profile: str = "readonly"
     profiles: dict[str, PolicyProfile]

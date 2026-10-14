@@ -14,11 +14,12 @@ _JOIN_IMPORTANT = 6
 
 async def _table_summary_for_joining(
     db_path: str, database: str, schema: str, table: str,
+    *, policy=None,
 ) -> Optional[dict]:
-    full = await metadata_service.describe_table(db_path, database, schema, table)
+    full = await metadata_service.describe_table(db_path, database, schema, table, detail="standard", policy=policy)
     if full is None:
         return None
-    cls = await semantic_service.classify_table(db_path, database, schema, table)
+    cls = full.get("classification") or {}
     pk = full.get("primary_key", []) or []
     fks = full.get("foreign_keys", []) or []
 
@@ -46,14 +47,17 @@ async def _table_summary_for_joining(
             break
         push(c["column_name"])
 
-    fk_edges = [
-        {
-            "via_column": fk.get("column_name"),
-            "to_table": f"{fk.get('ref_schema')}.{fk.get('ref_table')}",
-            "to_column": fk.get("ref_column"),
-        }
-        for fk in fks
-    ]
+    from ..services.relationship_service import group_foreign_keys
+    fk_edges = [{"to_table": f"{fk['ref_schema']}.{fk['ref_table']}",
+                 "constraint_name": fk.get("constraint_name"),
+                 "column_pairs": fk["column_pairs"],
+                 "metadata_complete": fk["metadata_complete"]}
+                for fk in group_foreign_keys(fks)]
+    required = set(pk) | {pair["from_column"] for fk in fk_edges for pair in fk["column_pairs"]}
+    chosen = set(important[:_JOIN_IMPORTANT]) | required
+    typed_columns = [{"name": c["column_name"], "type": c.get("sql_type", c.get("data_type")),
+                      "is_nullable": bool(c.get("is_nullable"))}
+                     for c in full.get("columns", []) if c["column_name"] in chosen]
 
     return {
         "table": f"{schema}.{table}",
@@ -61,6 +65,8 @@ async def _table_summary_for_joining(
         "pk": list(pk),
         "important_columns": important[:_JOIN_IMPORTANT],
         "fk_edges": fk_edges,
+        "columns": typed_columns,
+        "columns_omitted": len(full.get("columns", [])) > len(typed_columns),
     }
 
 
@@ -69,9 +75,10 @@ async def _object_summary_for_impact(
     object_name: str,
     object_type: str,
     cfg: Config,
+    *, policy=None,
 ) -> Optional[dict]:
     obj = await object_service.describe_object(
-        schema, object_name, object_type, cfg,
+        schema, object_name, object_type, cfg, policy=policy,
     )
     if not obj:
         return None
@@ -82,6 +89,7 @@ async def _object_summary_for_impact(
         "writes": list(obj.get("write_tables", []) or []),
         "depends_on": list(obj.get("dependencies", []) or []),
         "status": obj.get("status"),
+        **{key: obj[key] for key in ("dependencies_omitted", "definition_withheld", "definition_omission_reason") if key in obj},
     }
 
 
@@ -91,11 +99,15 @@ async def bundle_context_for_next_step(
     goal: str = "joining",
     detail: str = "brief",
     cfg: Optional[Config] = None,
+    policy=None,
 ) -> dict:
     """Compress prior discoveries into the minimum context the next
     tool needs. Supported goals: ``joining``, ``object_impact``.
     """
     cfg = cfg or get_config()
+    if policy is None:
+        from ..services.policy_service import PolicyService
+        policy = PolicyService(cfg)
     db_path = cfg.cache_path
     database = cfg.mssql_database
 
@@ -107,7 +119,7 @@ async def bundle_context_for_next_step(
             schema = item["schema"]
             table = item["table"]
             summary = await _table_summary_for_joining(
-                db_path, database, schema, table,
+                db_path, database, schema, table, policy=policy,
             )
             if summary is not None:
                 tables.append(summary)
@@ -129,7 +141,7 @@ async def bundle_context_for_next_step(
             if item.get("kind") != "object":
                 continue
             summary = await _object_summary_for_impact(
-                item["schema"], item["object_name"], item["object_type"], cfg,
+                item["schema"], item["object_name"], item["object_type"], cfg, policy=policy,
             )
             if summary is not None:
                 objects.append(summary)

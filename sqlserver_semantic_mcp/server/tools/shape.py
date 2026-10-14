@@ -77,18 +77,28 @@ def project_describe_table(
 
     brief: dict[str, Any] = {
         "table": f"{schema}.{table}",
-        "column_count": len(columns),
+        "column_count": full.get("column_count", len(columns)),
         "pk": list(pk),
         "fk_to": fk_to,
         "important_columns": _important_columns(columns, pk, fks, column_semantics),
         "classification": cls_type,
     }
+    if "columns_omitted" in full:
+        brief["columns_omitted"] = full["columns_omitted"]
+    if full.get("cache"):
+        brief["cache"] = full["cache"]
+    if full.get("structural_hash"):
+        brief["schema_version"] = full["structural_hash"]
     if detail == "brief":
         return brief
 
     # standard: brief + full columns (name/type/nullable) + full FK rows
     standard_cols = [
-        {"name": c["column_name"], "type": c.get("data_type"),
+        {"name": c["column_name"], "type": c.get("sql_type", c.get("data_type")),
+         **{key: value for key, value in (
+             ("numeric_precision", c.get("numeric_precision")), ("numeric_scale", c.get("numeric_scale")),
+             ("datetime_precision", c.get("datetime_precision")), ("collation", c.get("collation_name")))
+            if value is not None},
          "is_nullable": bool(c.get("is_nullable")),
          "semantic": column_semantics.get(c["column_name"]) or "generic"}
         for c in columns
@@ -97,6 +107,8 @@ def project_describe_table(
         **brief,
         "columns": standard_cols,
         "foreign_keys": list(fks),
+        "join_constraints": full.get("join_constraints", []),
+        "required_join_columns": full.get("required_join_columns", []),
     }
     if detail == "standard":
         return standard
@@ -106,15 +118,19 @@ def project_describe_table(
     for c in columns:
         full_cols.append({
             "name": c["column_name"],
-            "type": c.get("data_type"),
+            "type": c.get("sql_type", c.get("data_type")),
             "is_nullable": bool(c.get("is_nullable")),
             "max_length": c.get("max_length"),
+            "numeric_precision": c.get("numeric_precision"),
+            "numeric_scale": c.get("numeric_scale"),
+            "datetime_precision": c.get("datetime_precision"),
+            "collation": c.get("collation_name"),
             "default_value": c.get("default_value"),
             "description": c.get("description"),
             "semantic": column_semantics.get(c["column_name"]) or "generic",
         })
     return {
-        **brief,
+        **standard,
         "columns": full_cols,
         "foreign_keys": list(fks),
         "indexes": full.get("indexes", []),
@@ -138,6 +154,9 @@ def project_describe_object(
     if obj.get("status") == "error":
         brief["status"] = "error"
         brief["error_message"] = obj.get("error_message")
+    for key in ("definition_withheld", "definition_omission_reason", "dependencies_omitted"):
+        if key in obj:
+            brief[key] = obj[key]
 
     # include_definition explicit true overrides brief
     if detail == "brief":

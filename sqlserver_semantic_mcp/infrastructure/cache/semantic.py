@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 import aiosqlite
 
@@ -39,8 +39,9 @@ async def upsert_table_analysis(
         await db.execute(
             "INSERT OR REPLACE INTO sem_table_analysis "
             "(database_name, schema_name, table_name, structural_hash, status, "
-            " classification, column_analysis, is_lookup, computed_at, error_message) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " classification, column_analysis, is_lookup, computed_at, error_message, "
+            " attempt_count, next_retry_at, last_attempt_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,0,NULL,?)",
             (
                 database, schema, table, structural_hash, status,
                 json.dumps(classification) if classification else None,
@@ -48,6 +49,7 @@ async def upsert_table_analysis(
                 int(is_lookup) if is_lookup is not None else None,
                 datetime.now(timezone.utc).isoformat(),
                 error_message,
+                datetime.now(timezone.utc).isoformat(),
             ),
         )
         await db.commit()
@@ -110,11 +112,39 @@ async def list_pending_table_analyses(
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT schema_name, table_name FROM sem_table_analysis "
-            "WHERE database_name=? AND status IN ('pending','dirty') "
-            "ORDER BY schema_name, table_name LIMIT ?",
-            (database, limit),
+            "WHERE database_name=? AND (status IN ('pending','dirty') "
+            "OR (status='error' AND (next_retry_at IS NULL OR next_retry_at<=?))) "
+            "ORDER BY COALESCE(last_attempt_at,''), schema_name, table_name LIMIT ?",
+            (database, datetime.now(timezone.utc).isoformat(), limit),
         )
         return [(r["schema_name"], r["table_name"]) for r in await cur.fetchall()]
+
+
+async def record_table_analysis_failure(
+    db_path: str, database: str, schema: str, table: str,
+    *, error_message: str, retry_base_s: float, retry_max_s: float,
+) -> None:
+    """Preserve prior analysis while persisting fair, bounded retry scheduling."""
+    now = datetime.now(timezone.utc)
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            "SELECT attempt_count FROM sem_table_analysis WHERE "
+            "database_name=? AND schema_name=? AND table_name=?",
+            (database, schema, table),
+        )
+        row = await cur.fetchone()
+        attempts = int(row[0] or 0) + 1 if row else 1
+        delay = min(retry_max_s, retry_base_s * (2 ** min(attempts - 1, 30)))
+        await db.execute(
+            "UPDATE sem_table_analysis SET status='error', error_message=?, "
+            "attempt_count=?, next_retry_at=?, last_attempt_at=?, "
+            "structural_hash=COALESCE((SELECT structural_hash FROM sc_tables "
+            "WHERE database_name=? AND schema_name=? AND table_name=?), structural_hash) "
+            "WHERE database_name=? AND schema_name=? AND table_name=?",
+            (error_message, attempts, (now + timedelta(seconds=delay)).isoformat(),
+             now.isoformat(), database, schema, table, database, schema, table),
+        )
+        await db.commit()
 
 
 async def enqueue_all_tables(db_path: str, database: str) -> int:

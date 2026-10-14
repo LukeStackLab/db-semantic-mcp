@@ -128,26 +128,28 @@ class QueryService:
         response_mode: Optional[str] = None,
         token_budget_hint: Optional[str] = None,
         affected_rows_policy: Optional[str] = None,
+        validate_result_schema: bool = False,
         database: str = "",
     ) -> dict:
         """Execute SQL after policy validation.
 
         response_mode:
-          summary    — columns + row_count only
+          summary    — columns + at most 3 rows
           rows       — columns + rows (default when op=SELECT)
           sample     — columns + first N rows (N = budget-derived)
           count_only — row_count only
+
+        Write outcomes use transaction_state: committed, rolled_back,
+        not_started, or unknown. Unknown commit/rollback acknowledgements
+        require verification before any retry; executed=False alone does not
+        mean the server rolled the transaction back.
         """
         mode = _normalize_response_mode(
             response_mode, self._cfg.default_response_mode,
         )
         budget = token_budget_hint or self._cfg.default_token_budget_hint
 
-        strict_cap = self._cfg.strict_rows_affected_cap
-        if affected_rows_policy is not None:
-            strict_cap = (
-                strict_cap if self._cfg.connection_name else False
-            ) or affected_rows_policy == "strict"
+        strict_cap = self._cfg.strict_rows_affected_cap or affected_rows_policy == "strict"
 
         db = database or self._cfg.mssql_database
         policy = self._policy.current_policy()
@@ -163,43 +165,118 @@ class QueryService:
             }
 
         op = validation["intent"]["primary_operation"]
+        if validation["intent"].get("is_multi_statement") or validation["intent"].get("statement_count", 1) > 1:
+            return {
+                "executed": False, "validation": validation,
+                "error": "Batch execution is unsupported: whole-batch result and transaction caps cannot be guaranteed",
+                "failure_category": "unsupported_batch",
+                "next_action": "revise_query",
+            }
 
+        result = None
+        statement_started = False
         try:
             with open_connection(self._cfg) as conn:
                 cursor = conn.cursor()
                 try:
+                    result_schema = None
+                    if validate_result_schema:
+                        try:
+                            result_schema = self._describe_result_schema(cursor, sql)
+                        except Exception as exc:
+                            result = {
+                                "executed": False, "validation": validation,
+                                "error": f"Result schema validation failed: {self._safe_message(exc)}",
+                                "failure_category": "result_schema_validation",
+                                "transaction_state": "not_started",
+                                "next_action": "revise_query",
+                            }
+                            try:
+                                conn.rollback()
+                            except Exception as cleanup_exc:
+                                self._note_cleanup_failure(result, "preflight_rollback", cleanup_exc)
+                            return result
+                    statement_started = True
                     cursor.execute(sql)
 
                     if op == "SELECT":
-                        return self._shape_select(
+                        result = self._shape_select(
                             cursor, limit, mode, budget, validation,
                         )
+                        if result_schema is not None:
+                            result["result_schema"] = result_schema
+                        return result
 
-                    return self._shape_non_select(
+                    result = self._shape_non_select(
                         cursor, conn, policy.constraints.max_rows_affected,
                         strict_cap, validation,
                     )
+                    return result
                 finally:
                     try:
                         cursor.close()
-                    except Exception:
-                        logger.warning("Failed to close cursor", exc_info=True)
+                    except Exception as cleanup_exc:
+                        if result is not None:
+                            self._note_cleanup_failure(result, "cursor", cleanup_exc)
+                        logger.warning("Failed to close query cursor")
         except Exception as e:
-            message = str(e)
-            if self._cfg.mssql_password:
-                message = message.replace(self._cfg.mssql_password, "***")
+            if result is not None:
+                # A known COMMIT/ROLLBACK acknowledgement survives failures
+                # from the connection context manager's close operation.
+                self._note_cleanup_failure(result, "connection", e)
+                logger.warning("Failed to close query connection after a known result")
+                return result
+            message = self._safe_message(e)
             if self._cfg.connection_name:
                 logger.error("Query failed for connection %s: %s", self._cfg.connection_name, message)
             else:
-                logger.exception("Query execution failed")
-            return {
+                logger.error("Query execution failed: %s", message)
+            failed = {
                 "executed": False,
                 "validation": validation,
                 "error": message,
+                "failure_category": "database",
+                "transaction_state": "not_started" if not statement_started else "read_only",
                 "next_action": "revise_query",
             }
+            if statement_started and op != "SELECT":
+                failed.update(transaction_state="unknown", failure_category="write_outcome_unknown",
+                              automatic_retry_allowed=False, next_action="verify_transaction")
+                failed["error"] += "; write outcome is unknown. Verify the transaction before retrying"
+            return failed
 
     # ------------------------------------------------------------------ helpers
+
+    def _safe_message(self, exc: Exception) -> str:
+        message = str(exc)
+        if self._cfg.mssql_password:
+            message = message.replace(self._cfg.mssql_password, "***")
+        return message
+
+    def _note_cleanup_failure(self, result: dict, component: str, exc: Exception) -> None:
+        result["cleanup_failed"] = True
+        result.setdefault("cleanup_errors", []).append({
+            "component": component, "message": self._safe_message(exc),
+        })
+        if result.get("transaction_state") == "committed":
+            result["automatic_retry_allowed"] = False
+            result["warning"] = "Transaction committed; cleanup failed. Do not retry this write"
+
+    @staticmethod
+    def _describe_result_schema(cursor: Any, sql: str) -> list[dict]:
+        cursor.execute(
+            "SELECT column_ordinal, name, system_type_name, is_nullable, "
+            "error_number, error_message FROM "
+            "sys.dm_exec_describe_first_result_set(%s, NULL, 0)",
+            (sql,),
+        )
+        columns = []
+        for ordinal, name, type_name, nullable, error_number, error_message in cursor.fetchall():
+            if error_number is not None or error_message:
+                raise ValueError(error_message or f"SQL Server metadata error {error_number}")
+            columns.append({"ordinal": ordinal, "name": name,
+                            "type": type_name, "is_nullable": bool(nullable)})
+        return columns
 
     def _shape_select(
         self,
@@ -210,50 +287,59 @@ class QueryService:
         validation: dict,
     ) -> dict:
         columns = [d[0] for d in cursor.description]
-        rows = cursor.fetchmany(limit + 1)
-        truncated = len(rows) > limit
-        rows = rows[:limit]
+        fetch_limit = limit
+        if mode == "summary":
+            fetch_limit = min(limit, 3)
+        elif mode == "sample":
+            fetch_limit = min(limit, sample_row_cap(budget))
+        fetched = cursor.fetchmany(fetch_limit + 1)
+        truncated = len(fetched) > fetch_limit
+        rows = fetched[:fetch_limit]
+        common = {
+            "executed": True,
+            "validation": validation,
+            "response_mode": mode,
+            "token_budget_hint": budget,
+            "row_count": len(rows),
+            "row_count_scope": "fetched",
+            "returned_row_count": 0 if mode == "count_only" else len(rows),
+            "total_row_count": None if truncated else len(rows),
+            "fetched_row_count": len(fetched),
+            "fetch_limit_applied": fetch_limit,
+            "max_rows_applied": limit,
+            "truncated": truncated,
+            "result_complete": not truncated,
+            "rows_omitted": truncated or (mode == "count_only" and bool(rows)),
+        }
 
         if mode == "count_only":
             return {
-                "executed": True,
-                "validation": validation,
-                "row_count": len(rows),
-                "truncated": truncated,
+                **common,
                 "next_action": "done",
             }
 
         if mode == "summary":
             return {
-                "executed": True,
-                "validation": validation,
+                **common,
                 "columns": columns,
-                "row_count": len(rows),
-                "truncated": truncated,
+                "rows": [list(r) for r in rows],
                 "next_action": "refine_or_done",
             }
 
         if mode == "sample":
-            cap = min(sample_row_cap(budget), len(rows))
             return {
-                "executed": True,
-                "validation": validation,
+                **common,
                 "columns": columns,
-                "row_count": len(rows),
-                "truncated": truncated,
-                "sample_rows": [list(r) for r in rows[:cap]],
-                "sample_size": cap,
+                "sample_rows": [list(r) for r in rows],
+                "sample_size": len(rows),
                 "next_action": "refine_or_done",
             }
 
         # default: rows
         return {
-            "executed": True,
-            "validation": validation,
+            **common,
             "columns": columns,
             "rows": [list(r) for r in rows],
-            "row_count": len(rows),
-            "truncated": truncated,
             "next_action": "done",
         }
 
@@ -267,38 +353,61 @@ class QueryService:
     ) -> dict:
         affected = cursor.rowcount
         if strict_cap and affected < 0:
-            conn.rollback()
-            return {
-                "executed": False, "validation": validation,
-                "error": "Unable to determine affected rows; transaction rolled back",
-                "next_action": "revise_query",
-            }
+            return self._rollback_rejected_write(
+                conn, validation, "Unable to determine affected rows",
+                failure_category="affected_rows_unknown",
+            )
         exceeded = affected > cap
 
         if strict_cap and exceeded:
-            try:
-                conn.rollback()
-            except Exception:
-                logger.warning("Rollback failed", exc_info=True)
-            return {
-                "executed": False,
-                "validation": validation,
-                "rows_affected": affected,
-                "exceeded_cap": True,
-                "error": (
-                    f"Affected rows {affected} exceeds cap {cap} under "
-                    f"strict rows-affected policy; transaction rolled back"
-                ),
-                "next_action": "revise_query",
-            }
+            return self._rollback_rejected_write(
+                conn, validation,
+                f"Affected rows {affected} exceeds cap {cap} under strict rows-affected policy",
+                failure_category="affected_rows_cap", rows_affected=affected, exceeded_cap=True,
+            )
 
-        conn.commit()
+        try:
+            conn.commit()
+        except Exception as exc:
+            # A network failure can lose the acknowledgement after COMMIT
+            # already succeeded on the server. Never claim a rollback here.
+            return {
+                "executed": False, "validation": validation,
+                "rows_affected": affected, "exceeded_cap": exceeded,
+                "transaction_state": "unknown",
+                "failure_category": "commit_outcome_unknown",
+                "automatic_retry_allowed": False,
+                "error": f"Commit outcome is unknown: {self._safe_message(exc)}. Verify the transaction before retrying",
+                "next_action": "verify_transaction",
+            }
         return {
             "executed": True,
             "validation": validation,
             "rows_affected": affected,
             "exceeded_cap": exceeded,
+            "transaction_state": "committed",
             "next_action": "done",
+        }
+
+    def _rollback_rejected_write(
+        self, conn: Any, validation: dict, reason: str, *, failure_category: str, **details,
+    ) -> dict:
+        result = {"executed": False, "validation": validation, **details}
+        try:
+            conn.rollback()
+        except Exception as exc:
+            return {
+                **result, "transaction_state": "unknown",
+                "failure_category": "rollback_outcome_unknown",
+                "automatic_retry_allowed": False,
+                "error": f"{reason}; rollback outcome is unknown: {self._safe_message(exc)}. Verify the transaction before retrying",
+                "next_action": "verify_transaction",
+            }
+        return {
+            **result, "transaction_state": "rolled_back",
+            "failure_category": failure_category,
+            "error": f"{reason}; transaction rolled back",
+            "next_action": "revise_query",
         }
 
 

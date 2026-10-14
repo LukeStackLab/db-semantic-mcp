@@ -2,6 +2,10 @@ import logging
 import re
 from typing import Optional
 
+import sqlglot
+from sqlglot import exp
+from sqlglot.optimizer.scope import Scope, traverse_scope
+
 from ..config import Config, get_config
 from ..domain.enums import SqlOperation
 from ..infrastructure.cache.semantic import (
@@ -9,12 +13,16 @@ from ..infrastructure.cache.semantic import (
 )
 from ..infrastructure.cache.structural import read_schema_version
 from ..infrastructure.connection import fetch_one, fetch_all
+from ..infrastructure.workers import run_db_work
 from ..infrastructure.queries.object_queries import (
     GET_OBJECT_DEFINITION, GET_OBJECT_DEPENDENCIES,
 )
 from ..policy.analyzer import (
     _strip_comments, _split_statements, _detect_operation, _IDENT,
 )
+from ..policy.intents.ast_analyzer import _METADATA_FUNCTIONS, _StrictTSQL
+from ..policy.scope import split_object_name, table_reference
+from .policy_service import PolicyService
 
 logger = logging.getLogger(__name__)
 
@@ -129,36 +137,42 @@ def _augment_read_write(obj: dict) -> dict:
 async def describe_object(
     schema: str, object_name: str, object_type: str,
     cfg: Optional[Config] = None,
+    policy: Optional[PolicyService] = None,
 ) -> dict:
     cfg = cfg or get_config()
     db = cfg.mssql_database
+    if policy is not None:
+        policy.authorize_object(schema, object_name, database=db)
     ver = await read_schema_version(cfg.cache_path, db)
     object_hash = ver["object_hash"] if ver else ""
 
     cached = await get_object_definition(
         cfg.cache_path, db, schema, object_name, object_type,
     )
-    if cached and cached["status"] == "ready" \
+    if cached and cached["status"] in {"ready", "restricted"} \
             and cached.get("object_hash") == object_hash:
-        return _augment_read_write(cached)
+        if cached["status"] == "restricted":
+            cached.update(definition_withheld=True, dependencies_omitted=True,
+                          definition_omission_reason="Definition contains restricted or unresolved object references")
+        scoped = _apply_scope(_augment_read_write(cached), policy, db, schema, object_name)
+        if policy is not None and scoped.get("definition_withheld") and cached["status"] != "restricted":
+            await upsert_object_definition(
+                cfg.cache_path, db, schema, object_name, object_type,
+                object_hash=object_hash, status="restricted", definition=None,
+                dependencies=scoped.get("dependencies", []), affected_tables=scoped.get("affected_tables", []),
+            )
+            scoped["status"] = "restricted"
+        return scoped
 
     qualified = f"{schema}.{object_name}"
     try:
-        def_row = fetch_one(cfg, GET_OBJECT_DEFINITION, (qualified,))
-        definition = def_row[0] if def_row and def_row[0] else None
-        dep_rows = fetch_all(cfg, GET_OBJECT_DEPENDENCIES, (qualified,))
+        definition, dep_rows = await run_db_work(cfg, _fetch_object, cfg, qualified)
         dependencies = [f"{r[0]}.{r[1]}" for r in dep_rows if r[0]]
         affected = [
             f"{r[0]}.{r[1]}" for r in dep_rows
             if r[2] and "TABLE" in str(r[2]).upper()
         ]
-        await upsert_object_definition(
-            cfg.cache_path, db, schema, object_name, object_type,
-            object_hash=object_hash, status="ready",
-            definition=definition, dependencies=dependencies,
-            affected_tables=affected,
-        )
-        return _augment_read_write({
+        scoped = _apply_scope(_augment_read_write({
             "database_name": db,
             "schema": schema,
             "object_name": object_name,
@@ -168,12 +182,129 @@ async def describe_object(
             "definition": definition,
             "dependencies": dependencies,
             "affected_tables": affected,
-        })
+        }), policy, db, schema, object_name)
+        status = "restricted" if scoped.get("definition_withheld") else "ready"
+        scoped["status"] = status
+        await upsert_object_definition(
+            cfg.cache_path, db, schema, object_name, object_type,
+            object_hash=object_hash, status=status,
+            definition=scoped.get("definition"), dependencies=scoped.get("dependencies", []),
+            affected_tables=scoped.get("affected_tables", []),
+        )
+        return scoped
     except Exception as e:
-        logger.exception("describe_object failed")
+        message = str(e)
+        if cfg.mssql_password:
+            message = message.replace(cfg.mssql_password, "***")
+        logger.error("describe_object failed: %s", message)
         await upsert_object_definition(
             cfg.cache_path, db, schema, object_name, object_type,
             object_hash=object_hash, status="error",
-            error_message=str(e),
+            error_message=message,
         )
-        return {"status": "error", "error_message": str(e)}
+        return {"status": "error", "error_message": "Unable to load object metadata" if policy else message}
+
+
+def _fetch_object(cfg: Config, qualified: str) -> tuple[Optional[str], list]:
+    """Both complete sync connection lifecycles run in the same DB worker."""
+    row = fetch_one(cfg, GET_OBJECT_DEFINITION, (qualified,))
+    definition = row[0] if row and row[0] else None
+    return definition, fetch_all(cfg, GET_OBJECT_DEPENDENCIES, (qualified,))
+
+
+def _reference_allowed(reference: str, policy: PolicyService, database: str) -> bool:
+    try:
+        parts = split_object_name(reference)
+        name = parts[-1]
+        schema = parts[-2] if len(parts) >= 2 else ""
+        return policy.object_allowed(schema, name, database=parts[0] if len(parts) == 3 else database)
+    except Exception:
+        return False
+
+
+def _definition_allowed(
+    definition: str, policy: PolicyService, database: str, schema: str, name: str,
+) -> bool:
+    """Withhold opaque definitions when their physical scope cannot be proven."""
+    try:
+        statements = _StrictTSQL().parse(definition, error_level=sqlglot.ErrorLevel.RAISE)
+        for statement in statements:
+            if statement is None:
+                continue
+            if any(isinstance(node, (exp.Command, exp.Execute)) for node in statement.walk()):
+                return False
+            metadata_functions = {
+                function.name.upper() if isinstance(function, exp.Anonymous) else function.sql_name().upper()
+                for function in statement.find_all(exp.Func)
+            } & _METADATA_FUNCTIONS
+            if metadata_functions:
+                scope = policy.current_policy().scope
+                if any((scope.allowed_databases, scope.allowed_schemas, scope.allowed_tables, scope.denied_tables)):
+                    return False
+            module_target = None
+            if isinstance(statement, exp.Create) and str(statement.args.get("kind", "")).upper() in {"VIEW", "PROCEDURE", "FUNCTION"}:
+                module_target = statement.this
+                while isinstance(module_target, (exp.StoredProcedure, exp.UserDefinedFunction, exp.Schema)):
+                    module_target = module_target.this
+            for function in statement.find_all(exp.Dot):
+                if not isinstance(function.expression, exp.Func):
+                    continue
+                parts = [function.expression]
+                qualifier = function.this
+                while isinstance(qualifier, exp.Dot):
+                    parts.insert(0, qualifier.expression)
+                    qualifier = qualifier.this
+                parts.insert(0, qualifier)
+                if len(parts) not in (2, 3) or any(not isinstance(part, exp.Identifier) for part in parts[:-1]):
+                    return False
+                function_db = parts[0].name if len(parts) == 3 else database
+                if not policy.object_allowed(parts[-2].name, parts[-1].name, database=function_db):
+                    return False
+            cte_refs = set()
+            for scope in traverse_scope(statement):
+                for node, source in scope.selected_sources.values():
+                    if isinstance(node, exp.Table) and isinstance(source, Scope):
+                        cte_refs.add(id(node))
+            for table in statement.find_all(exp.Table):
+                reference = table_reference(table)
+                if id(table) in cte_refs:
+                    continue
+                # Only this root module's own target was authorized at entry.
+                # A nested CREATE or a same-named target in another DB is a
+                # separate physical object and still requires a scope check.
+                if table is module_target and reference.name == name and reference.schema in {"", schema} and (reference.database or database) == database:
+                    continue
+                if not policy.object_allowed(reference.schema, reference.name, database=reference.database or database):
+                    return False
+        return True
+    except Exception:
+        return False
+
+
+def _apply_scope(
+    obj: dict, policy: Optional[PolicyService], database: str, schema: str, name: str,
+) -> dict:
+    if policy is None:
+        return obj
+    out = dict(obj)
+    hidden = False
+    for key in ("dependencies", "read_tables", "write_tables", "affected_tables"):
+        values = obj.get(key) or []
+        filtered = [value for value in values if _reference_allowed(value, policy, database)]
+        hidden |= len(filtered) != len(values)
+        out[key] = filtered
+    definition = obj.get("definition")
+    if definition and (hidden or not _definition_allowed(definition, policy, database, schema, name)):
+        out["definition"] = None
+        out["definition_withheld"] = True
+        out["definition_omission_reason"] = "Definition contains restricted or unresolved object references"
+        # Regex-derived names can be incomplete for three/four-part references.
+        # Once a body is withheld, retain only catalog-confirmed allowed names.
+        confirmed = {value.casefold() for value in out.get("dependencies", [])}
+        for key in ("read_tables", "write_tables", "affected_tables"):
+            values = out[key]
+            out[key] = [value for value in values if value.casefold() in confirmed]
+            hidden |= len(out[key]) != len(values)
+    if hidden:
+        out["dependencies_omitted"] = True
+    return out

@@ -56,7 +56,7 @@ async def _load_table_structure(
         pk = [r["column_name"] for r in await cur.fetchall()]
 
         cur = await db.execute(
-            "SELECT column_name, ref_schema, ref_table FROM sc_foreign_keys "
+            "SELECT * FROM sc_foreign_keys "
             "WHERE database_name=? AND schema_name=? AND table_name=?",
             (database, schema, table),
         )
@@ -74,9 +74,11 @@ def _column_semantic(col: dict) -> Optional[str]:
     return None
 
 
-def _classify(struct: dict, table: str) -> dict:
+def _classify_rules(struct: dict, table: str) -> dict:
     cols = struct["columns"]
     fks = struct["foreign_keys"]
+    from .relationship_service import group_foreign_keys
+    fk_count = len(group_foreign_keys(fks))
     col_names = [c["column_name"].lower() for c in cols]
 
     reasons: list[str] = []
@@ -89,13 +91,13 @@ def _classify(struct: dict, table: str) -> dict:
         return {"type": "audit", "confidence": 0.75, "reasons": reasons}
 
     # Bridge: 2+ FKs and almost all columns are FKs
-    if len(fks) >= 2 and len(cols) <= len(fks) + 2:
-        reasons.append(f"{len(fks)} FKs over {len(cols)} columns")
+    if fk_count >= 2 and len(cols) <= len(fks) + 2:
+        reasons.append(f"{fk_count} FK constraints over {len(cols)} columns")
         return {"type": "bridge", "confidence": 0.8, "reasons": reasons}
 
     # Fact: >= 2 FKs
-    if len(fks) >= 2:
-        reasons.append(f"{len(fks)} FKs")
+    if fk_count >= 2:
+        reasons.append(f"{fk_count} FK constraints")
         return {"type": "fact", "confidence": 0.7, "reasons": reasons}
 
     # Lookup: few columns, contains code/name-like column names
@@ -109,7 +111,7 @@ def _classify(struct: dict, table: str) -> dict:
         return {"type": "lookup", "confidence": 0.75, "reasons": reasons}
 
     # Dimension fallback
-    if len(fks) <= 1 and len(cols) >= 3:
+    if fk_count <= 1 and len(cols) >= 3:
         reasons.append("few FKs with multiple descriptive columns")
         return {"type": "dimension", "confidence": 0.5, "reasons": reasons}
 
@@ -117,10 +119,17 @@ def _classify(struct: dict, table: str) -> dict:
             "reasons": reasons or ["no rule matched"]}
 
 
+def _classify(struct: dict, table: str) -> dict:
+    return {**_classify_rules(struct, table), "confidence_kind": "heuristic",
+            "algorithm": "constraints-v1"}
+
+
 async def classify_table(
     db_path: str, database: str, schema: str, table: str,
-    *, force: bool = False,
+    *, force: bool = False, policy=None,
 ) -> dict:
+    if policy is not None:
+        policy.authorize_object(schema, table, database)
     struct = await _load_table_structure(db_path, database, schema, table)
     if struct is None:
         return {"type": "unknown", "confidence": 0.0,
@@ -130,7 +139,8 @@ async def classify_table(
     if not force:
         cached = await get_table_analysis(db_path, database, schema, table)
         if cached and cached["status"] == "ready" \
-                and cached.get("structural_hash") == structural_hash:
+                and cached.get("structural_hash") == structural_hash \
+                and (cached.get("classification") or {}).get("algorithm") == "constraints-v1":
             return cached["classification"]
 
     classification = _classify(struct, table)
@@ -153,28 +163,40 @@ async def classify_table(
 
 async def analyze_columns(
     db_path: str, database: str, schema: str, table: str,
+    *, policy=None,
 ) -> list[dict]:
-    await classify_table(db_path, database, schema, table)
+    await classify_table(db_path, database, schema, table, policy=policy)
     cached = await get_table_analysis(db_path, database, schema, table)
     return cached.get("column_analysis", []) if cached else []
 
 
 async def summarize_for_joining(
     db_path: str, database: str, schema: str, table: str,
+    *, policy=None,
 ) -> Optional[dict]:
     """Return reasoning-ready info for joining against this table.
 
     Shape: {table, pk, classification, join_candidates, common_filter_columns}
     """
+    if policy is not None:
+        policy.authorize_object(schema, table, database)
     struct = await _load_table_structure(db_path, database, schema, table)
     if struct is None:
         return None
 
-    join_candidates = [
-        {"via_column": fk["column_name"],
-         "to_table": f"{fk['ref_schema']}.{fk['ref_table']}"}
-        for fk in struct["foreign_keys"]
-    ]
+    from .relationship_service import group_foreign_keys
+    groups = group_foreign_keys([fk for fk in struct["foreign_keys"]
+                                if policy is None or policy.object_allowed(fk["ref_schema"], fk["ref_table"], database)])
+    join_candidates = []
+    for fk in groups:
+        candidate = {"to_table": f"{fk['ref_schema']}.{fk['ref_table']}",
+                     "column_pairs": fk["column_pairs"],
+                     "constraint_name": fk.get("constraint_name"),
+                     "metadata_complete": fk["metadata_complete"]}
+        if len(fk["column_pairs"]) == 1:
+            candidate["via_column"] = fk["column_pairs"][0]["from_column"]
+            candidate["to_column"] = fk["column_pairs"][0]["to_column"]
+        join_candidates.append(candidate)
 
     common_filter_columns = [
         c["column_name"] for c in struct["columns"]
@@ -197,86 +219,40 @@ async def detect_lookup_tables(
     schemas: Optional[list[str]] = None,
     keyword: Optional[str] = None,
     confidence_min: float = 0.0,
+    policy=None,
 ) -> list[dict]:
     results: list[dict] = []
     need_classify: list[tuple[str, str]] = []
-
     kw_lower = keyword.lower() if keyword else None
-
-    def passes_filter(s: str, t: str) -> bool:
-        if schemas and s not in schemas:
-            return False
-        if kw_lower and kw_lower not in f"{s}.{t}".lower():
-            return False
-        return True
-
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT schema_name, table_name, structural_hash FROM sc_tables "
-            "WHERE database_name=?",
-            (database,),
-        )
-        table_hashes = {
-            (r["schema_name"], r["table_name"]): r["structural_hash"] or ""
-            for r in await cur.fetchall()
-            if passes_filter(r["schema_name"], r["table_name"])
-        }
-        all_tables = list(table_hashes)
-
-        # Fast path: ready rows whose per-table hash still matches sc_tables
-        cur = await db.execute(
-            "SELECT a.schema_name, a.table_name, a.classification "
-            "FROM sem_table_analysis a JOIN sc_tables t "
-            "  ON t.database_name = a.database_name "
-            " AND t.schema_name = a.schema_name "
-            " AND t.table_name = a.table_name "
-            " AND t.structural_hash = a.structural_hash "
-            "WHERE a.database_name=? AND a.status='ready' AND a.is_lookup=1",
-            (database,),
-        )
-        cached_hits = {
-            (r["schema_name"], r["table_name"]):
-                json.loads(r["classification"]) if r["classification"] else None
-            for r in await cur.fetchall()
-        }
-
-        # Tables whose analysis is missing / stale / non-lookup-ready
-        cur = await db.execute(
-            "SELECT schema_name, table_name, status, structural_hash "
-            "FROM sem_table_analysis "
-            "WHERE database_name=?",
-            (database,),
-        )
-        cache_state = {
-            (r["schema_name"], r["table_name"]):
-                (r["status"], r["structural_hash"])
-            for r in await cur.fetchall()
-        }
-
-    for (s, t) in all_tables:
-        if (s, t) in cached_hits:
-            cls = cached_hits[(s, t)] or {"confidence": 0.75}
-            conf = cls.get("confidence", 0.75)
-            if conf >= confidence_min:
-                results.append({
-                    "schema_name": s, "table_name": t,
-                    "confidence": conf,
-                })
-            continue
-        state = cache_state.get((s, t))
-        # Needs classification if: no row, dirty/pending, or hash mismatch
-        if state is None or state[0] != "ready" \
-                or state[1] != table_hashes[(s, t)]:
-            need_classify.append((s, t))
-
-    for (s, t) in need_classify:
-        c = await classify_table(db_path, database, s, t)
-        if c.get("type") == "lookup":
-            conf = c.get("confidence", 0.75)
-            if conf >= confidence_min:
-                results.append({
-                    "schema_name": s, "table_name": t,
-                    "confidence": conf,
-                })
+            "SELECT t.schema_name,t.table_name,t.structural_hash,a.status,"
+            "a.structural_hash AS analysis_hash,a.classification "
+            "FROM sc_tables t LEFT JOIN sem_table_analysis a "
+            "ON a.database_name=t.database_name AND a.schema_name=t.schema_name AND a.table_name=t.table_name "
+            "WHERE t.database_name=? ORDER BY t.schema_name,t.table_name", (database,))
+        for row in await cur.fetchall():
+            schema, table = row["schema_name"], row["table_name"]
+            if schemas and schema not in schemas:
+                continue
+            if kw_lower and kw_lower not in f"{schema}.{table}".lower():
+                continue
+            if policy is not None and not policy.object_allowed(schema, table, database):
+                continue
+            try:
+                classification = json.loads(row["classification"] or "null")
+            except (ValueError, TypeError):
+                classification = None
+            ready = (row["status"] == "ready" and row["analysis_hash"] == row["structural_hash"]
+                     and isinstance(classification, dict) and classification.get("algorithm") == "constraints-v1")
+            if not ready:
+                need_classify.append((schema, table))
+            elif classification.get("type") == "lookup" and classification.get("confidence", 0) >= confidence_min:
+                results.append({"schema_name": schema, "table_name": table, "confidence": classification["confidence"]})
+    for schema, table in need_classify:
+        kwargs = {"policy": policy} if policy is not None else {}
+        classification = await classify_table(db_path, database, schema, table, **kwargs)
+        if classification.get("type") == "lookup" and classification.get("confidence", 0) >= confidence_min:
+            results.append({"schema_name": schema, "table_name": table, "confidence": classification["confidence"]})
     return results

@@ -71,6 +71,12 @@ def test_cancel_writes_nothing(environment):
     assert passwords == []
 
 
+def test_setup_tool_profile_is_saved(environment):
+    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""], tool_profile="explore")
+    assert status == 0
+    assert load_profile(environment[0] / "erp" / "connection.json").tool_profile == "explore"
+
+
 def test_connection_retry_keeps_defaults_and_does_not_repeat_permission(environment, monkeypatch):
     attempts = []
 

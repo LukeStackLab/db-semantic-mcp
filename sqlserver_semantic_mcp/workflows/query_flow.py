@@ -21,6 +21,7 @@ def plan_or_execute_query(
     detail: str = "brief",
     token_budget_hint: Optional[str] = None,
     affected_rows_policy: Optional[str] = None,
+    validate_result_schema: bool = False,
     cfg: Optional[Config] = None,
 ) -> dict:
     """Single entry point for agents holding ready-to-run SQL.
@@ -72,19 +73,23 @@ def plan_or_execute_query(
             response_mode=return_mode,
             token_budget_hint=token_budget_hint,
             affected_rows_policy=affected_rows_policy,
+            validate_result_schema=validate_result_schema,
             database=database,
         )
+        if detail == "brief" and result.get("executed"):
+            # Execution already passed the same policy; full intent remains
+            # available through validate/standard rather than repeated here.
+            result = {key: value for key, value in result.items() if key != "validation"}
+        data = {"path": "direct_execute", **result}
+        if detail != "brief":
+            data["route"] = decision.to_dict()
         return ToolEnvelope(
             kind="plan_or_execute_query",
             detail=detail,
             confidence=decision.confidence,
             next_action=result.get("next_action", "done"),
             recommended_tool=None,
-            data={
-                "path": "direct_execute",
-                **result,
-                "route": decision.to_dict(),
-            },
+            data=data,
         ).to_dict()
 
     if decision.route == "direct_validate":

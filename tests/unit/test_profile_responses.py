@@ -50,7 +50,7 @@ async def test_tool_error_redacts_password_and_identifies_source(cfg, monkeypatc
 @pytest.mark.asyncio
 async def test_resource_identifies_source(cfg, monkeypatch):
     from sqlserver_semantic_mcp.server.resources import schema
-    monkeypatch.setattr(schema, "get_context", lambda: SimpleNamespace(cfg=cfg))
+    monkeypatch.setattr(schema, "get_context", lambda: SimpleNamespace(cfg=cfg, policy=MagicMock()))
     monkeypatch.setattr(schema.metadata_service, "database_summary", AsyncMock(return_value={"table_count": 2}))
     result = json.loads(await schema.read_resource(AnyUrl("semantic://summary/database")))
     assert result["source"]["connection"] == "erp"

@@ -1,12 +1,14 @@
 import json
 import logging
+from time import perf_counter
 from typing import Any, Awaitable, Callable, Optional
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, CallToolResult, ToolAnnotations
 
 from ..config import Config, get_config
 from ..infrastructure.cache import revalidation
+from ..infrastructure.workers import take_worker_timings
 from ..services import metrics_service
 from ..services.policy_service import PolicyService
 from ..services.query_service import QueryService
@@ -36,9 +38,11 @@ _ctx: Context | None = None
 
 def get_context() -> Context:
     global _ctx
-    if _ctx is None:
-        _ctx = Context(get_config())
-        _ctx.policy.load()
+    cfg = get_config()
+    if _ctx is None or _ctx.cfg is not cfg:
+        candidate = Context(cfg)
+        candidate.policy.load()
+        _ctx = candidate
     return _ctx
 
 
@@ -51,11 +55,39 @@ app = Server("sqlserver-semantic-mcp")
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 _TOOL_REGISTRY: dict[str, tuple[Tool, ToolHandler]] = {}
+_OUTPUT_VALIDATORS: dict[str, Any] = {}
 
 
 def register_tool(tool: Tool, handler: ToolHandler) -> None:
     if tool.name in _TOOL_REGISTRY:
         raise ValueError(f"Duplicate tool registration: {tool.name}")
+    if tool.outputSchema is None:
+        # Advertise each tool's own contract rather than repeating unrelated
+        # fields across every descriptor loaded into a client's context.
+        properties = {}
+        required = []
+        if tool.name in {"get_tables", "get_table_relationships", "get_dependency_chain", "detect_lookup_tables"}:
+            properties["data"] = {"type": "array", "items": {"type": "object"}}
+            required = ["data"]
+        elif tool.name in {"plan_or_execute_query", "discover_relevant_tables"}:
+            properties.update(kind={"const": tool.name}, data={"type": "object"})
+            required = ["kind", "data"]
+        elif tool.name == "describe_table":
+            properties.update(table={"type": "string"}, column_count={"type": "integer"}, columns={"type": "array"})
+        elif tool.name == "find_join_path":
+            properties.update(found={"type": "boolean"}, ambiguous={"type": "boolean"}, candidates={"type": "array"})
+        tool.outputSchema = {"type": "object"}
+        if properties:
+            tool.outputSchema["properties"] = properties
+        if required:
+            tool.outputSchema["required"] = required
+    if tool.annotations is None:
+        mutating = tool.name in {"plan_or_execute_query", "refresh_schema_cache", "tool_metrics"}
+        tool.annotations = ToolAnnotations(readOnlyHint=not mutating, openWorldHint=False)
+    from jsonschema.validators import validator_for
+    validator = validator_for(tool.outputSchema)
+    validator.check_schema(tool.outputSchema)
+    _OUTPUT_VALIDATORS[tool.name] = validator(tool.outputSchema)
     _TOOL_REGISTRY[tool.name] = (tool, handler)
 
 
@@ -77,7 +109,7 @@ def _infer_workflow_metrics(name: str, shaped: Any) -> dict[str, Any]:
             extras[key] = shaped.get(key)
     data = shaped.get("data")
     if isinstance(data, dict):
-        if "path" in data and "route_type" not in extras:
+        if "path" in data:
             extras["route_type"] = data.get("path")
         if name == "plan_or_execute_query":
             extras["was_direct_execute"] = (
@@ -91,45 +123,95 @@ def _infer_workflow_metrics(name: str, shaped: Any) -> dict[str, Any]:
     return extras
 
 
-@app.call_tool()
-async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
+def _failure_category(result: Any) -> str | None:
+    if not isinstance(result, dict):
+        return None
+    if result.get("allowed") is False:
+        return "policy_denied"
+    if result.get("failure_category"):
+        return result["failure_category"]
+    for key in ("data", "validation"):
+        category = _failure_category(result.get(key))
+        if category:
+            return category
+    if result.get("error") or result.get("status") == "error":
+        return "execution_error"
+    return None
+
+
+async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
     if name not in _TOOL_REGISTRY:
-        return [TextContent(type="text", text=f"Unknown tool: {name}")]
-    _t, handler = _TOOL_REGISTRY[name]
+        payload = {"error": f"Unknown tool: {name}"}
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(payload))],
+                              structuredContent=payload, isError=True)
+    tool, handler = _TOOL_REGISTRY[name]
     cfg = get_config()
-    if name != "refresh_schema_cache":  # the refresh tool warms up itself
-        await revalidation.maybe_revalidate(get_config())
+    started = perf_counter()
+    take_worker_timings()
+    array_length = None
+    error_category = None
     try:
+        if name != "refresh_schema_cache":
+            await revalidation.maybe_revalidate(cfg)
         result = await handler(arguments or {})
+        error_category = _failure_category(result)
         shaped = compact(result)
         array_length = len(shaped) if isinstance(shaped, list) else None
+        if not isinstance(shaped, dict):
+            shaped = {"data": shaped} if shaped is not None else {"found": False}
         if cfg.connection_name:
-            source = {"connection": cfg.connection_name, "database": cfg.mssql_database}
-            shaped = {**shaped, "source": source} if isinstance(shaped, dict) else {"data": shaped, "source": source}
-        text = json.dumps(
-            shaped, ensure_ascii=False, default=str, separators=(",", ":"),
-        )
-        if get_config().metrics_enabled:
+            shaped["source"] = {"connection": cfg.connection_name, "database": cfg.mssql_database}
+        if cfg.cache_enabled and name not in {"tool_metrics", "get_execution_policy"}:
             try:
-                extras = _infer_workflow_metrics(name, shaped)
-                await metrics_service.record_metric(
-                    get_config().cache_path, name,
-                    response_bytes=len(text.encode("utf-8")),
-                    array_length=array_length,
-                    fields_returned=len(shaped) if isinstance(shaped, dict) else None,
-                    **extras,
-                )
+                shaped["cache"] = {**shaped.get("cache", {}), **await revalidation.cache_freshness(cfg)}
             except Exception:
-                logger.exception("metrics_service.record_metric failed")
-        return [TextContent(type="text", text=text)]
-    except Exception as e:
-        message = str(e)
+                # Cache diagnostics must never turn an already committed
+                # operation into a failure that encourages a duplicate write.
+                shaped["cache"] = {**shaped.get("cache", {}), "freshness_unknown": True}
+                logger.warning("Cache freshness unavailable for tool %s", name)
+        # Normalize values exactly once; JSON text and structuredContent agree.
+        text = json.dumps(shaped, ensure_ascii=False, default=str, separators=(",", ":"))
+        shaped = json.loads(text)
+        if not error_category and tool.outputSchema:
+            _OUTPUT_VALIDATORS[name].validate(shaped)
+    except Exception as exc:
+        message = str(exc)
         if cfg.mssql_password:
             message = message.replace(cfg.mssql_password, "***")
-        error = {"error": message}
+        shaped = {"error": message}
         if cfg.connection_name:
-            logger.error("Tool %s failed for connection %s: %s", name, cfg.connection_name, message)
-            error["source"] = {"connection": cfg.connection_name, "database": cfg.mssql_database}
-        else:
-            logger.exception("Tool %s raised", name)
-        return [TextContent(type="text", text=json.dumps(error, ensure_ascii=False))]
+            shaped["source"] = {"connection": cfg.connection_name, "database": cfg.mssql_database}
+        error_category = "invalid_arguments" if isinstance(exc, (ValueError, KeyError, TypeError)) else "execution_error"
+        # Raw driver tracebacks may include SQL or credentials.
+        logger.error("Tool %s failed (%s)", name, error_category)
+        text = json.dumps(shaped, ensure_ascii=False, separators=(",", ":"))
+    if cfg.metrics_enabled:
+        try:
+            extras = _infer_workflow_metrics(name, shaped)
+            data = shaped.get("data") if isinstance(shaped.get("data"), dict) else shaped
+            extras.pop("bundle_key", None)
+            extras["detail"] = arguments.get("detail", shaped.get("detail", cfg.default_detail))
+            extras["response_mode"] = data.get("response_mode") or arguments.get("return_mode") or cfg.default_response_mode
+            extras["token_budget_hint"] = data.get("token_budget_hint") or arguments.get("token_budget_hint") or cfg.default_token_budget_hint
+            cache = shaped.get("cache", {})
+            await metrics_service.record_metric(
+                cfg.cache_path, name, response_bytes=len(text.encode("utf-8")),
+                array_length=array_length, fields_returned=len(shaped),
+                elapsed_ms=(perf_counter() - started) * 1000,
+                fetched_rows=data.get("fetched_row_count"),
+                cache_hit=cache.get("hit"), error_category=error_category,
+                **(take_worker_timings() or {}), **extras)
+        except Exception:
+            logger.warning("Metric recording failed for tool %s", name)
+    return CallToolResult(content=[TextContent(type="text", text=text)],
+                          structuredContent=shaped, isError=error_category is not None)
+
+
+@app.call_tool()
+async def _call_tool_result(name: str, arguments: dict) -> CallToolResult:
+    return await _dispatch_tool(name, arguments)
+
+
+async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Compatibility adapter for callers consuming content blocks directly."""
+    return (await _dispatch_tool(name, arguments)).content

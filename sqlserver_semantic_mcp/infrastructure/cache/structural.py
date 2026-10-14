@@ -1,20 +1,21 @@
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import aiosqlite
 
 from ...config import Config
+from ..workers import run_db_work
 from ..connection import open_connection
 from ..queries.metadata_queries import (
     GET_TABLES, GET_COLUMNS, GET_PRIMARY_KEYS,
     GET_FOREIGN_KEYS, GET_INDEXES, GET_OBJECTS,
 )
 from ..queries.comment_queries import GET_COMMENTS
-from .probe import SchemaFingerprints, fetch_fingerprints, write_fingerprints
+from .probe import SchemaFingerprints, fetch_fingerprints, write_fingerprints, filter_fingerprints
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StructuralSnapshot:
     tables: list[tuple]          # (schema, table)
-    columns: list[tuple]         # (schema, table, col, type, maxlen, nullable, default, ordinal)
+    columns: list[tuple]         # legacy 8 columns + precision, scale, datetime precision, collation
     primary_keys: list[tuple]    # (schema, table, col)
-    foreign_keys: list[tuple]    # (schema, table, col, ref_schema, ref_table, ref_col)
-    indexes: list[tuple]         # (schema, table, index_name, is_unique, is_pk, cols)
+    foreign_keys: list[tuple]    # legacy 6 columns + constraint id/name/ordinal, disabled, untrusted
+    indexes: list[tuple]         # legacy 6 columns + has_filter, is_disabled
     objects: list[tuple]         # (schema, name, type)
     comments: list[tuple]        # (schema, object, column, description)
 
@@ -35,15 +36,30 @@ def _sha256(obj: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _pad_rows(rows, minimum: int, width: int) -> list[tuple]:
+    """Keep old snapshots usable without inventing missing catalog evidence."""
+    normalized = []
+    for row in rows:
+        if not minimum <= len(row) <= width:
+            raise ValueError(f"Expected {minimum}..{width} metadata fields; got {len(row)}")
+        normalized.append((*row, *((None,) * (width - len(row)))))
+    return normalized
+
+
+def _sorted_rows(rows) -> list[list]:
+    # JSON ordering also handles equal legacy prefixes with nullable new fields.
+    return sorted([list(row) for row in rows], key=lambda row: json.dumps(row, default=str))
+
+
 def compute_structural_hash(
     tables, columns, primary_keys, foreign_keys, indexes,
 ) -> str:
     return _sha256({
-        "tables": sorted([list(t) for t in tables]),
-        "columns": sorted([list(c) for c in columns]),
-        "primary_keys": sorted([list(p) for p in primary_keys]),
-        "foreign_keys": sorted([list(f) for f in foreign_keys]),
-        "indexes": sorted([list(i) for i in indexes]),
+        "tables": _sorted_rows(tables),
+        "columns": _sorted_rows(_pad_rows(columns, 8, 12)),
+        "primary_keys": _sorted_rows(primary_keys),
+        "foreign_keys": _sorted_rows(_pad_rows(foreign_keys, 6, 11)),
+        "indexes": _sorted_rows(_pad_rows(indexes, 6, 8)),
     })
 
 
@@ -65,13 +81,13 @@ def compute_table_hashes(snap: "StructuralSnapshot") -> dict[tuple[str, str], st
             if key in parts:
                 parts[key][kind].append(list(row))
 
-    _bucket(snap.columns, "columns")
+    _bucket(_pad_rows(snap.columns, 8, 12), "columns")
     _bucket(snap.primary_keys, "primary_keys")
-    _bucket(snap.foreign_keys, "foreign_keys")
-    _bucket(snap.indexes, "indexes")
+    _bucket(_pad_rows(snap.foreign_keys, 6, 11), "foreign_keys")
+    _bucket(_pad_rows(snap.indexes, 6, 8), "indexes")
 
     return {
-        key: _sha256({k: sorted(v) for k, v in buckets.items()})
+        key: _sha256({k: _sorted_rows(v) for k, v in buckets.items()})
         for key, buckets in parts.items()
     }
 
@@ -99,6 +115,11 @@ async def write_structural_snapshot(
     db_path: str, database: str, snap: StructuralSnapshot,
     fingerprints: Optional[SchemaFingerprints] = None,
 ) -> dict:
+    snap = replace(
+        snap, columns=_pad_rows(snap.columns, 8, 12),
+        foreign_keys=_pad_rows(snap.foreign_keys, 6, 11),
+        indexes=_pad_rows(snap.indexes, 6, 8),
+    )
     structural_hash = compute_structural_hash(
         snap.tables, snap.columns, snap.primary_keys,
         snap.foreign_keys, snap.indexes,
@@ -129,8 +150,9 @@ async def write_structural_snapshot(
             await db.executemany(
                 "INSERT INTO sc_columns "
                 "(database_name, schema_name, table_name, column_name, data_type, "
-                "max_length, is_nullable, column_default, ordinal_position) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "max_length, is_nullable, column_default, ordinal_position, "
+                "numeric_precision, numeric_scale, datetime_precision, collation_name) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [(database, *row) for row in snap.columns],
             )
             await db.executemany(
@@ -142,13 +164,16 @@ async def write_structural_snapshot(
             await db.executemany(
                 "INSERT INTO sc_foreign_keys "
                 "(database_name, schema_name, table_name, column_name, "
-                "ref_schema, ref_table, ref_column) VALUES (?,?,?,?,?,?,?)",
+                "ref_schema, ref_table, ref_column, constraint_id, constraint_name, "
+                "constraint_column_id, is_disabled, is_not_trusted) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 [(database, *row) for row in snap.foreign_keys],
             )
             await db.executemany(
                 "INSERT INTO sc_indexes "
                 "(database_name, schema_name, table_name, index_name, "
-                "is_unique, is_primary_key, columns) VALUES (?,?,?,?,?,?,?)",
+                "is_unique, is_primary_key, columns, has_filter, is_disabled) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 [(database, *row) for row in snap.indexes],
             )
             await db.executemany(
@@ -173,7 +198,8 @@ async def write_structural_snapshot(
 
             # Targeted cascade: dirty only tables whose own structure changed
             await db.execute(
-                "UPDATE sem_table_analysis SET status='dirty' "
+                "UPDATE sem_table_analysis SET status='dirty',attempt_count=0,"
+                "last_attempt_at=NULL,next_retry_at=NULL,error_message=NULL "
                 "WHERE database_name=:db AND EXISTS ("
                 "  SELECT 1 FROM sc_tables t"
                 "  WHERE t.database_name = sem_table_analysis.database_name"
@@ -277,9 +303,22 @@ async def warmup_structural_cache(
     can be passed in to avoid re-running the probe queries.
     """
     if fingerprints is None:
-        fingerprints, snap = _fetch_warmup_data(cfg)
+        fingerprints, snap = await run_db_work(cfg, _fetch_warmup_data, cfg)
     else:
-        snap = fetch_snapshot_from_server(cfg)
+        snap = await run_db_work(cfg, fetch_snapshot_from_server, cfg)
+    from ...services.policy_service import PolicyService
+    policy = PolicyService(cfg)
+    allowed = lambda row: policy.object_allowed(row[0], row[1], cfg.mssql_database)
+    snap = replace(
+        snap, tables=[row for row in snap.tables if allowed(row)],
+        columns=[row for row in snap.columns if allowed(row)],
+        primary_keys=[row for row in snap.primary_keys if allowed(row)],
+        foreign_keys=[row for row in snap.foreign_keys if allowed(row) and allowed(row[3:5])],
+        indexes=[row for row in snap.indexes if allowed(row)],
+        objects=[row for row in snap.objects if allowed(row)],
+        comments=[row for row in snap.comments if allowed(row)],
+    )
+    fingerprints = filter_fingerprints(cfg, fingerprints)
     logger.info(
         "Structural snapshot: %d tables, %d columns, %d FKs, %d objects",
         len(snap.tables), len(snap.columns),

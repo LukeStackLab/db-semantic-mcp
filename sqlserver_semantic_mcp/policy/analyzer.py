@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 from ..domain.enums import SqlOperation, RiskLevel
+from .scope import ObjectReference
 
 
 @dataclass
@@ -21,6 +22,13 @@ class SqlIntent:
     has_unqualified_tables: bool = False
     contains_dynamic_sql: bool = False
     contains_cte: bool = False
+    # Internal AST evidence; omitted from the public intent response.
+    statement_intents: list["SqlIntent"] = field(default_factory=list, repr=False)
+    object_references: list[ObjectReference] = field(default_factory=list, repr=False)
+    authorization_error: str = ""
+    required_operations: list[SqlOperation] = field(default_factory=list, repr=False)
+    is_simple_write: bool = False
+    metadata_functions: list[str] = field(default_factory=list, repr=False)
 
 
 _OP_MAP = {

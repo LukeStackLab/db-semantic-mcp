@@ -57,3 +57,22 @@ def test_unknown_profile_raises(tmp_path):
 def test_missing_file_returns_readonly():
     p = load_policy_from_file(None, profile_override=None)
     assert p.profile_name == "readonly"
+
+
+def test_explicit_missing_file_fails_closed(tmp_path):
+    with pytest.raises(ValueError, match="policy"):
+        load_policy_from_file(str(tmp_path / "missing.json"), profile_override=None)
+
+
+def test_unreadable_policy_fails_closed(tmp_path):
+    with pytest.raises(ValueError, match="policy"):
+        load_policy_from_file(str(tmp_path), profile_override=None)
+
+
+def test_unknown_scope_fields_fail_closed(tmp_path):
+    pf = tmp_path / "typo.json"
+    pf.write_text(json.dumps({"profiles": {"readonly": {
+        "profile_name": "readonly", "scope": {"denied_table": ["Secrets"]},
+    }}}))
+    with pytest.raises(ValueError, match="policy"):
+        load_policy_from_file(str(pf), profile_override=None)

@@ -11,7 +11,8 @@ def register() -> None:
             description=(
                 "action=get returns per-tool payload metrics (call_count, "
                 "total_bytes, avg_bytes, p95_bytes, max_bytes) ordered by "
-                "total_bytes desc, heaviest first; action=reset deletes all "
+                "total_bytes desc, plus p50/p95 elapsed_ms, worker/DB timing, "
+                "observed cache hits and error_count. Bytes are not token counts. action=reset deletes all "
                 "recorded metrics and returns the deleted count."
             ),
             inputSchema={
@@ -22,7 +23,7 @@ def register() -> None:
                         "enum": ["get", "reset"],
                         "default": "get",
                     },
-                    "limit": {"type": "integer", "minimum": 1, "default": 10},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
                 },
             },
         ),

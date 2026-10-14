@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS sc_columns (
     is_nullable      INTEGER NOT NULL,
     column_default   TEXT,
     ordinal_position INTEGER NOT NULL,
+    numeric_precision INTEGER,
+    numeric_scale     INTEGER,
+    datetime_precision INTEGER,
+    collation_name    TEXT,
     PRIMARY KEY (database_name, schema_name, table_name, column_name)
 );
 
@@ -54,7 +58,12 @@ CREATE TABLE IF NOT EXISTS sc_foreign_keys (
     column_name   TEXT NOT NULL,
     ref_schema    TEXT NOT NULL,
     ref_table     TEXT NOT NULL,
-    ref_column    TEXT NOT NULL
+    ref_column    TEXT NOT NULL,
+    constraint_id INTEGER,
+    constraint_name TEXT,
+    constraint_column_id INTEGER,
+    is_disabled INTEGER,
+    is_not_trusted INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_fk_from
     ON sc_foreign_keys (database_name, schema_name, table_name);
@@ -69,6 +78,8 @@ CREATE TABLE IF NOT EXISTS sc_indexes (
     is_unique      INTEGER NOT NULL,
     is_primary_key INTEGER NOT NULL,
     columns        TEXT NOT NULL,
+    has_filter     INTEGER,
+    is_disabled    INTEGER,
     PRIMARY KEY (database_name, schema_name, table_name, index_name)
 );
 
@@ -110,6 +121,9 @@ CREATE TABLE IF NOT EXISTS sem_table_analysis (
     is_lookup       INTEGER,
     computed_at     TEXT,
     error_message   TEXT,
+    attempt_count   INTEGER NOT NULL DEFAULT 0,
+    next_retry_at   TEXT,
+    last_attempt_at TEXT,
     PRIMARY KEY (database_name, schema_name, table_name)
 );
 CREATE INDEX IF NOT EXISTS idx_sem_table_status
@@ -162,12 +176,37 @@ async def _migrate(db: aiosqlite.Connection) -> None:
             "ADD COLUMN structural_hash TEXT NOT NULL DEFAULT ''"
         )
 
+    additions = {
+        "sc_columns": {
+            "numeric_precision": "INTEGER", "numeric_scale": "INTEGER",
+            "datetime_precision": "INTEGER", "collation_name": "TEXT",
+        },
+        "sc_foreign_keys": {
+            "constraint_id": "INTEGER", "constraint_name": "TEXT",
+            "constraint_column_id": "INTEGER", "is_disabled": "INTEGER",
+            "is_not_trusted": "INTEGER",
+        },
+        "sc_indexes": {"has_filter": "INTEGER", "is_disabled": "INTEGER"},
+        "sem_table_analysis": {
+            "attempt_count": "INTEGER NOT NULL DEFAULT 0", "next_retry_at": "TEXT",
+            "last_attempt_at": "TEXT",
+        },
+    }
+    for table, definitions in additions.items():
+        cur = await db.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in await cur.fetchall()}
+        for name, definition in definitions.items():
+            if name not in existing:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
 
 async def init_store(db_path: str) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(db_path) as db:
         await db.executescript(SCHEMA_DDL)
         await _migrate(db)
+        from ...services.metrics_service import migrate_metrics
+        await migrate_metrics(db)
         await db.commit()
 
 

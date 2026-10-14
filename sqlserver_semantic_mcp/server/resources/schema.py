@@ -2,8 +2,10 @@ import json
 
 from mcp.types import Resource, ResourceTemplate
 from pydantic import AnyUrl
+from urllib.parse import unquote
 
 from ...services import metadata_service, semantic_service, object_service
+from ...infrastructure.cache import revalidation
 from ..app import app, get_context
 
 
@@ -49,7 +51,8 @@ async def list_resource_templates() -> list[ResourceTemplate]:
 
 
 def _split_qualified(qualified: str, uri: str) -> tuple[str, str]:
-    parts = qualified.split(".", 1)
+    from ...policy.scope import split_object_name
+    parts = split_object_name(unquote(qualified))
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError(
             f"Invalid resource URI '{uri}': expected schema.table format"
@@ -61,12 +64,23 @@ def _split_qualified(qualified: str, uri: str) -> tuple[str, str]:
 async def read_resource(uri: AnyUrl) -> str:
     payload = await _read_resource_payload(uri)
     cfg = get_context().cfg
+    data = json.loads(payload)
+    if cfg.cache_enabled:
+        await revalidation.maybe_revalidate(cfg)
+        try:
+            freshness = await revalidation.cache_freshness(cfg)
+        except Exception:
+            freshness = {"freshness_unknown": True}
+        if isinstance(data, dict):
+            data["cache"] = {**data.get("cache", {}), **freshness}
+        else:
+            data = {"data": data, "cache": freshness}
     if cfg.connection_name:
         return json.dumps({
             "source": {"connection": cfg.connection_name, "database": cfg.mssql_database},
-            "data": json.loads(payload),
+            "data": data,
         }, ensure_ascii=False, default=str, separators=(",", ":"))
-    return payload
+    return json.dumps(data, ensure_ascii=False, default=str, separators=(",", ":"))
 
 
 async def _read_resource_payload(uri: AnyUrl) -> str:
@@ -76,18 +90,18 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
     s = str(uri)
 
     if s == "semantic://schema/tables":
-        return json.dumps(await metadata_service.list_tables(cp, db), default=str)
+        return json.dumps(await metadata_service.list_tables(cp, db, policy=ctx.policy), default=str)
 
     if s == "semantic://summary/database":
         return json.dumps(
-            await metadata_service.database_summary(cp, db), default=str,
+            await metadata_service.database_summary(cp, db, policy=ctx.policy), default=str,
         )
 
     if s.startswith("semantic://schema/tables/"):
         qualified = s[len("semantic://schema/tables/"):]
         schema, table = _split_qualified(qualified, s)
         return json.dumps(
-            await metadata_service.describe_table(cp, db, schema, table),
+            await metadata_service.describe_table(cp, db, schema, table, policy=ctx.policy),
             default=str,
         )
 
@@ -95,7 +109,7 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
         qualified = s[len("semantic://analysis/classification/"):]
         schema, table = _split_qualified(qualified, s)
         return json.dumps(
-            await semantic_service.classify_table(cp, db, schema, table),
+            await semantic_service.classify_table(cp, db, schema, table, policy=ctx.policy),
             default=str,
         )
 
@@ -109,7 +123,7 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
         obj_type = parts[0].upper()
         schema, name = _split_qualified(parts[1], s)
         return json.dumps(
-            await object_service.describe_object(schema, name, obj_type, ctx.cfg),
+            await object_service.describe_object(schema, name, obj_type, ctx.cfg, policy=ctx.policy),
             default=str,
         )
 
@@ -117,7 +131,7 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
         qualified = s[len("semantic://summary/table/"):]
         schema, table = _split_qualified(qualified, s)
         summary = await semantic_service.summarize_for_joining(
-            cp, db, schema, table,
+            cp, db, schema, table, policy=ctx.policy,
         )
         return json.dumps(summary or {}, default=str)
 
@@ -131,7 +145,7 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
         obj_type = parts[0].upper()
         schema, name = _split_qualified(parts[1], s)
         obj = await object_service.describe_object(
-            schema, name, obj_type, ctx.cfg,
+            schema, name, obj_type, ctx.cfg, policy=ctx.policy,
         )
         payload = {
             "object": f"{schema}.{name}",
@@ -140,6 +154,8 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
             "reads": list((obj or {}).get("read_tables", []) or []),
             "writes": list((obj or {}).get("write_tables", []) or []),
             "depends_on": list((obj or {}).get("dependencies", []) or []),
+            **{key: obj[key] for key in ("dependencies_omitted", "definition_withheld", "definition_omission_reason")
+               if obj and key in obj},
         }
         return json.dumps(payload, default=str)
 

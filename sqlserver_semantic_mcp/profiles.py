@@ -24,11 +24,30 @@ class ConnectionProfile(BaseModel):
     port: int = Field(default=1433, ge=1, le=65535)
     readonly: bool = True
     budget: TokenBudgetHint = DEFAULT_TOKEN_BUDGET_HINT
+    tool_profile: str = "all"
+    discovery_aliases: dict[str, list[str]] = Field(default_factory=dict)
+    db_worker_limit: int = Field(default=4, ge=1, le=32)
+    schema_cache_ttl_s: float = Field(default=300.0, ge=0)
     encrypt: bool = True
     max_rows_returned: int = Field(default=1000, ge=1)
     max_rows_affected: int = Field(default=100, ge=1)
     query_timeout: int = Field(default=30, ge=1)
     credential: CredentialReference | None = None
+
+    @field_validator("tool_profile")
+    @classmethod
+    def valid_tool_profile(cls, value: str) -> str:
+        # Keep validation independent of server imports and registration.
+        aliases = {"all", "query", "explore", "maintenance"}
+        groups = {"metadata", "policy", "query", "cache", "relationship",
+                  "object", "semantic", "metrics", "workflow"}
+        value = value.strip()
+        if value in aliases:
+            return value
+        selected = [part.strip() for part in value.split(",") if part.strip()]
+        if not selected or any(part not in groups for part in selected):
+            raise ValueError("Unknown tool profile")
+        return ",".join(dict.fromkeys(selected))
 
     @field_validator("name")
     @classmethod
@@ -103,6 +122,10 @@ def config_for_profile(
         policy_file=str(policy_path) if policy_path else None,
         policy_profile=profile.policy().profile_name,
         default_token_budget_hint=profile.budget,
+        tool_profile=profile.tool_profile,
+        discovery_aliases=profile.discovery_aliases,
+        db_worker_limit=profile.db_worker_limit,
+        schema_cache_ttl_s=profile.schema_cache_ttl_s,
         max_rows_returned=profile.max_rows_returned,
         max_rows_affected=profile.max_rows_affected,
         query_timeout=profile.query_timeout,

@@ -126,7 +126,8 @@ async def test_describe_object_unified_types(monkeypatch, env):
     """VIEW / PROCEDURE / FUNCTION all route through the same handler."""
     from sqlserver_semantic_mcp.server.tools import object_tool
 
-    async def fake_describe(schema, name, object_type, cfg):
+    async def fake_describe(schema, name, object_type, cfg, policy=None):
+        assert policy is not None
         return {
             "schema": schema, "object_name": name, "object_type": object_type,
             "status": "ok", "dependencies": ["dbo.Base"],
@@ -155,7 +156,8 @@ async def test_describe_object_tool_dispatches_on_type_arg(monkeypatch, env):
 
     seen_types = []
 
-    async def fake_describe(schema, name, object_type, cfg):
+    async def fake_describe(schema, name, object_type, cfg, policy=None):
+        assert policy is not None
         seen_types.append(object_type)
         return {
             "schema": schema, "object_name": name, "object_type": object_type,

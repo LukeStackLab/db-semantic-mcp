@@ -12,21 +12,19 @@ from sqlserver_semantic_mcp.domain.enums import SqlOperation
 
 # ---- Fix 1: policy loader fallback on bad files ----
 
-def test_fix1_malformed_json_falls_back_to_readonly(tmp_path):
+def test_fix1_malformed_json_fails_closed(tmp_path):
     pf = tmp_path / "bad.json"
     pf.write_text("{not valid json")
-    p = load_policy_from_file(str(pf), profile_override=None)
-    assert p.profile_name == "readonly"
-    assert p.operations.select is True
-    assert p.operations.update is False
+    with pytest.raises(ValueError, match="policy"):
+        load_policy_from_file(str(pf), profile_override=None)
 
 
-def test_fix1_bad_schema_falls_back_to_readonly(tmp_path):
+def test_fix1_bad_schema_fails_closed(tmp_path):
     pf = tmp_path / "bad.json"
     # Valid JSON but wrong structure
     pf.write_text(json.dumps({"foo": "bar"}))
-    p = load_policy_from_file(str(pf), profile_override=None)
-    assert p.profile_name == "readonly"
+    with pytest.raises(ValueError, match="policy"):
+        load_policy_from_file(str(pf), profile_override=None)
 
 
 def test_fix1_profile_not_found_still_raises(tmp_path):

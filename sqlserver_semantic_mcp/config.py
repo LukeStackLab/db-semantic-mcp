@@ -28,6 +28,7 @@ class Config(BaseSettings):
     mssql_port: int = 1433
     mssql_windows_auth: bool = False
     mssql_encrypt: bool = False
+    db_worker_limit: int = Field(default=4, ge=1, le=32)
 
     # ---- Cache ----
     cache_path: str = "./cache/semantic_mcp.db"
@@ -37,6 +38,9 @@ class Config(BaseSettings):
     background_interval_ms: int = Field(default=500, ge=0)
     # Minimum seconds between schema drift probes (throttle window)
     probe_interval_s: float = Field(default=60.0, ge=0.0)
+    schema_cache_ttl_s: float = Field(default=300.0, ge=0.0)
+    background_retry_base_s: float = Field(default=1.0, gt=0.0)
+    background_retry_max_s: float = Field(default=60.0, gt=0.0)
 
     # ---- Policy ----
     policy_file: Optional[str] = None
@@ -51,6 +55,7 @@ class Config(BaseSettings):
     # "all" is the default surface and now resolves to the full consolidated
     # 12-tool set (see server/tools/__init__.py::_GROUP_REGISTRATIONS).
     tool_profile: str = "all"
+    discovery_aliases: dict[str, list[str]] = Field(default_factory=dict)
 
     # ---- Metrics ----
     metrics_enabled: bool = True
@@ -64,8 +69,8 @@ class Config(BaseSettings):
     workflow_tools_enabled: bool = True
 
     # ---- Analyzer router ----
-    # regex (default, regex-based) | ast (placeholder; falls back to regex)
-    intent_analyzer: Literal["regex", "ast"] = "regex"
+    # Routing may use regex; authorization always uses the strict TSQL AST.
+    intent_analyzer: Literal["regex", "ast"] = "ast"
 
 
 _config: Optional[Config] = None

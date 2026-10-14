@@ -49,5 +49,5 @@ async def _lookups(args: dict) -> list[dict]:
     confidence_min = float(args.get("confidence_min", 0.0))
     return await semantic_service.detect_lookup_tables(
         ctx.cfg.cache_path, ctx.cfg.mssql_database,
-        schemas=schemas, keyword=keyword, confidence_min=confidence_min,
+        schemas=schemas, keyword=keyword, confidence_min=confidence_min, policy=ctx.policy,
     )

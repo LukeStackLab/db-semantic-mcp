@@ -53,6 +53,18 @@ def test_relationship_model():
     assert r.type == "many_to_one"
 
 
+def test_compound_relationship_model_does_not_require_singular_aliases():
+    r = Relationship(
+        from_schema="dbo", from_table="Lines", to_schema="dbo", to_table="Orders",
+        type="many_to_one", constraint_id=123, constraint_name="FK_Lines_Orders",
+        metadata_complete=True,
+        column_pairs=[{"from_column": "TenantId", "to_column": "TenantId", "ordinal": 1},
+                      {"from_column": "OrderId", "to_column": "Id", "ordinal": 2}],
+    )
+    assert r.fk_column is None
+    assert len(r.column_pairs) == 2
+
+
 def test_db_object_model():
     o = DbObject(
         schema_name="dbo", object_name="vw_Users",

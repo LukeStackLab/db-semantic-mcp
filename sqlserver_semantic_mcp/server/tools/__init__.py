@@ -16,10 +16,19 @@ _GROUP_REGISTRATIONS = {
     "workflow":     workflow.register,
 }
 
+_NAMED_PROFILES = {
+    "all": list(_GROUP_REGISTRATIONS),
+    "query": ["policy", "query"],
+    "explore": ["metadata", "policy", "query", "relationship", "workflow"],
+    "maintenance": ["policy", "cache", "metrics"],
+}
+
 
 def _resolve_profile_groups(profile: str) -> list[str]:
-    if not profile or profile == "all":
+    if not profile:
         return list(_GROUP_REGISTRATIONS.keys())
+    if profile in _NAMED_PROFILES:
+        return list(_NAMED_PROFILES[profile])
     requested = [g.strip() for g in profile.split(",") if g.strip()]
     if not requested:
         return list(_GROUP_REGISTRATIONS.keys())
@@ -29,7 +38,7 @@ def _resolve_profile_groups(profile: str) -> list[str]:
             f"Unknown tool profile group(s): {', '.join(unknown)}. "
             f"Valid groups: {', '.join(sorted(_GROUP_REGISTRATIONS.keys()))}"
         )
-    return requested
+    return list(dict.fromkeys(requested))
 
 
 def register_all() -> None:

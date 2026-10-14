@@ -27,10 +27,9 @@ def register() -> None:
         Tool(
             name="find_join_path",
             description=(
-                "Find a shortest FK-based join path between two tables "
-                "(BFS, bidirectional edges). Use after candidate tables are "
-                "known. Set score=true to also rank the path (penalises "
-                "extra/bridge/audit/lookup hops)."
+                "Find bounded shortest FK join alternatives with complete column "
+                "pairs. Parallel roles return ambiguous=true and require a choice. "
+                "Set score=true for heuristic ranking; scores never authorize execution."
             ),
             inputSchema={
                 "type": "object",
@@ -39,7 +38,8 @@ def register() -> None:
                     "from_table":  {"type": "string"},
                     "to_schema":   {"type": "string"},
                     "to_table":    {"type": "string"},
-                    "max_hops":    {"type": "integer", "minimum": 1, "default": 5},
+                    "max_hops":    {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+                    "max_candidates": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
                     "score": {"type": "boolean", "default": False,
                               "description": "true = also rank the path "
                                              "(penalises extra/bridge/audit/"
@@ -63,7 +63,7 @@ def register() -> None:
                 "properties": {
                     "schema":    {"type": "string"},
                     "table":     {"type": "string"},
-                    "max_depth": {"type": "integer", "default": 10},
+                    "max_depth": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10},
                     "schemas":   {"oneOf": [{"type": "string"},
                                             {"type": "array",
                                              "items": {"type": "string"}}]},
@@ -77,28 +77,42 @@ def register() -> None:
 
 async def _rels(args: dict) -> list[dict]:
     ctx = get_context()
+    ctx.policy.authorize_object(args["schema"], args["table"], ctx.cfg.mssql_database)
     return await relationship_service.get_table_relationships(
         ctx.cfg.cache_path, ctx.cfg.mssql_database,
-        args["schema"], args["table"],
+        args["schema"], args["table"], policy=ctx.policy,
     )
 
 
 async def _path(args: dict) -> dict:
     ctx = get_context()
-    path = await relationship_service.find_join_path(
+    for prefix in ("from", "to"):
+        ctx.policy.authorize_object(args[f"{prefix}_schema"], args[f"{prefix}_table"], ctx.cfg.mssql_database)
+    result = await relationship_service.find_join_candidates(
         ctx.cfg.cache_path, ctx.cfg.mssql_database,
         args["from_schema"], args["from_table"],
         args["to_schema"], args["to_table"],
         max_hops=args.get("max_hops", 5),
+        max_candidates=args.get("max_candidates", 5), policy=ctx.policy,
     )
     if not args.get("score"):
-        return {"found": path is not None, "path": path or []}
+        return result
 
-    if path is None:
-        return {"found": False, "confidence": 0.0, "hops": 0, "path": [],
-                "penalties": [], "next_action": "broaden_or_pick_different_start",
+    if not result["found"]:
+        return {**result, "confidence": 0.0, "hops": 0, "penalties": [],
                 "recommended_tool": "discover_relevant_tables"}
 
+    for candidate in result["candidates"]:
+        candidate.update(await _score_path(ctx, candidate["path"]))
+    result["confidence_kind"] = "heuristic"
+    if not result["ambiguous"]:
+        candidate = result["candidates"][0]
+        for key in ("confidence", "hops", "penalties"):
+            result[key] = candidate[key]
+    return result
+
+
+async def _score_path(ctx, path: list[dict]) -> dict:
     hops = len(path)
     score = 1.0 - (0.15 * max(hops - 1, 0))
     penalties: list[dict] = []
@@ -107,22 +121,20 @@ async def _path(args: dict) -> dict:
         if not schema or not table:
             continue
         cls = await semantic_service.classify_table(
-            ctx.cfg.cache_path, ctx.cfg.mssql_database, schema, table)
+            ctx.cfg.cache_path, ctx.cfg.mssql_database, schema, table,
+            policy=ctx.policy)
         pen = _CLASSIFICATION_PENALTY.get(cls.get("type"), 0.0)
         if pen:
             score -= pen
             penalties.append({"at": f"{schema}.{table}",
                               "classification": cls.get("type"), "penalty": pen})
     score = max(0.0, min(1.0, score))
-    return {"found": True, "confidence": round(score, 3), "hops": hops,
-            "path": path, "penalties": penalties,
-            "next_action": "execute" if score >= 0.5 else "consider_alternatives",
-            "recommended_tool": ("plan_or_execute_query" if score >= 0.5
-                                 else "find_join_path")}
+    return {"confidence": round(score, 3), "hops": hops, "penalties": penalties}
 
 
 async def _chain(args: dict) -> list[dict]:
     ctx = get_context()
+    ctx.policy.authorize_object(args["schema"], args["table"], ctx.cfg.mssql_database)
     raw = args.get("schemas")
     if isinstance(raw, str):
         schemas = [raw] if raw else None
@@ -135,4 +147,5 @@ async def _chain(args: dict) -> list[dict]:
         args["schema"], args["table"],
         max_depth=args.get("max_depth", 10),
         schemas=schemas,
+        policy=ctx.policy,
     )

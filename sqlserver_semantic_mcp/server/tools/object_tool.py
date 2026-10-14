@@ -56,7 +56,7 @@ async def _describe_object(args: dict, object_type: str) -> dict:
     detail = resolve_detail(args)
     include = bool(args.get("include_definition", False))
     obj = await object_service.describe_object(
-        args["schema"], args["name"], object_type, ctx.cfg,
+        args["schema"], args["name"], object_type, ctx.cfg, policy=ctx.policy,
     )
     obj = _attach_hash_and_bytes(obj)
     return project_describe_object(obj, detail=detail, include_definition=include)

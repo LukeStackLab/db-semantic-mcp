@@ -1,7 +1,6 @@
 from mcp.types import Tool
 
 from ...infrastructure.cache import revalidation
-from ...infrastructure.cache.structural import warmup_structural_cache
 from ..app import get_context, register_tool
 
 
@@ -21,6 +20,5 @@ def register() -> None:
 
 async def _refresh(args: dict) -> dict:
     ctx = get_context()
-    result = await warmup_structural_cache(ctx.cfg)
-    revalidation.note_refreshed(ctx.cfg)
+    result = await revalidation.refresh_now(ctx.cfg)
     return {"refreshed": True, **result}

@@ -6,9 +6,11 @@ from ..config import Config, get_config
 from ..policy.analyzer import SqlIntent
 from ..policy.enforcer import enforce
 from ..policy.intents import get_analyzer
+from ..policy.intents.ast_analyzer import AstIntentAnalyzer
 from ..policy.loader import apply_env_overrides, load_active_policy
 from ..policy.models import PolicyFile, PolicyProfile
 from ..policy.readonly_guard import find_write_keywords, is_select_only, mask_literals
+from ..policy.scope import object_allowed
 from ..setup.files import read_snapshot
 
 
@@ -17,6 +19,7 @@ class PolicyService:
         self._cfg = cfg or get_config()
         self._policy: Optional[PolicyProfile] = None
         self._analyzer = get_analyzer(self._cfg)
+        self._authorization_analyzer = AstIntentAnalyzer()
 
     def load(self) -> None:
         if not self._cfg.connection_name:
@@ -50,14 +53,22 @@ class PolicyService:
     def analyze(self, sql: str) -> SqlIntent:
         return self._analyzer.analyze(sql)
 
+    def object_allowed(self, schema: str, name: str, database: str = "") -> bool:
+        return object_allowed(self.current_policy().scope,
+                              database or self._cfg.mssql_database, schema, name)
+
+    def authorize_object(self, schema: str, name: str, database: str = "") -> None:
+        if not self.object_allowed(schema, name, database):
+            raise PermissionError(f"Object '{schema}.{name}' is denied by policy scope")
+
     def validate(self, sql: str, database: str = "") -> dict:
         policy = self.current_policy()
-        intent = self._analyzer.analyze(sql)
-        result = enforce(intent, policy, database=database)
+        intent = self._authorization_analyzer.analyze(sql)
+        result = enforce(intent, policy, database=database or self._cfg.mssql_database)
         allowed, reason = result.allowed, result.reason
         if allowed and self._cfg.connection_name:
             allowed, reason = self._check_fixed_query(sql, intent)
-        if allowed and is_select_only(policy):
+        if is_select_only(policy):
             hits = find_write_keywords(sql)
             if hits:
                 allowed = False
@@ -80,6 +91,8 @@ class PolicyService:
             return True, "Query is allowed"
         if self._cfg.policy_profile != "read_write_safe" or op not in {"INSERT", "UPDATE"}:
             return False, "Fixed profile permits SELECT and explicitly enabled INSERT/UPDATE only"
+        if not intent.is_simple_write:
+            return False, "Fixed profile writes require a single simple INSERT VALUES or UPDATE; subqueries/CTEs/OUTPUT are not supported"
         allowed_keywords = {op, "INTO"} if op == "INSERT" else {op}
         clean = mask_literals(sql)
         verbs = re.findall(r"\b(?:SELECT|INSERT|UPDATE|DELETE|MERGE|OUTPUT|WITH)\b", clean, re.IGNORECASE)

@@ -70,6 +70,9 @@ def register() -> None:
                     "schema": {"type": "string"},
                     "table":  {"type": "string"},
                     "detail": _DETAIL_PROP,
+                    "columns": {"type": "array", "items": {"type": "string"},
+                                "minItems": 1, "uniqueItems": True,
+                                "description": "Only return these columns; standard includes exact SQL types and complete join pairs."},
                 },
                 "required": ["schema", "table"],
             },
@@ -101,9 +104,10 @@ async def _get_tables(args: dict) -> list[dict]:
     ctx = get_context()
     schemas = _normalize_schema_filter(args.get("schema"))
     keyword = args.get("keyword") or None
+    cap = _resolve_list_limit(args, ctx.cfg.default_token_budget_hint)
     rows = await metadata_service.list_tables(
         ctx.cfg.cache_path, ctx.cfg.mssql_database,
-        schemas=schemas, keyword=keyword,
+        schemas=schemas, keyword=keyword, limit=cap, policy=ctx.policy,
     )
     cap = _resolve_list_limit(args, ctx.cfg.default_token_budget_hint)
     if cap is not None and len(rows) > cap:
@@ -119,11 +123,14 @@ async def _describe_table(args: dict) -> Optional[dict]:
     schema = args["schema"]
     table = args["table"]
 
-    full = await metadata_service.describe_table(cp, db, schema, table)
+    if args.get("columns") and detail == "brief":
+        detail = "standard"
+    full = await metadata_service.describe_table(
+        cp, db, schema, table, detail=detail, columns=args.get("columns"), policy=ctx.policy)
     if full is None:
         return None
 
-    classification = await semantic_service.classify_table(cp, db, schema, table)
+    classification = full.get("classification")
     semantic_map = {
         c["column_name"]: (semantic_service._column_semantic(c) or "generic")
         for c in full.get("columns", [])

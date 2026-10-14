@@ -13,6 +13,7 @@ from .infrastructure.cache.store import init_store
 from .infrastructure.cache.structural import (
     read_schema_version, warmup_structural_cache,
 )
+from .infrastructure.workers import shutdown_db_workers
 from .server.app import app, get_context
 from .server import resources  # noqa: F401
 from .server.prompts import register_prompts
@@ -33,6 +34,7 @@ async def _startup() -> asyncio.Task | None:
     )
 
     await init_store(cfg.cache_path)
+    get_context()  # Fail closed on an invalid explicit policy before DB work.
 
     bg_task: asyncio.Task | None = None
     if cfg.cache_enabled:
@@ -68,8 +70,9 @@ async def _startup() -> asyncio.Task | None:
 
 
 async def _run() -> None:
-    bg_task = await _startup()
+    bg_task = None
     try:
+        bg_task = await _startup()
         async with stdio_server() as (r, w):
             await app.run(r, w, app.create_initialization_options())
     finally:
@@ -79,6 +82,13 @@ async def _run() -> None:
                 await bg_task
             except (asyncio.CancelledError, Exception):
                 pass
+        from .infrastructure.cache.revalidation import _BACKGROUND_TASKS
+        pending = list(_BACKGROUND_TASKS)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await shutdown_db_workers()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -90,6 +100,8 @@ def main(argv: list[str] | None = None) -> None:
     setup.add_argument("--config-dir", type=Path, help="連線配置根目錄")
     setup.add_argument("--client", choices=["codex", "claude-code", "claude-desktop", "cursor"])
     setup.add_argument("--client-config", type=Path, help="指定 Client 設定檔")
+    setup.add_argument("--tool-profile", choices=["all", "query", "explore", "maintenance"],
+                       help="選擇此批連線啟用的工具集合；省略時保留既有配置")
     for name, help_text in [("serve", "啟動固定配置的 MCP"), ("doctor", "檢查配置、連線與 MCP 握手")]:
         command = commands.add_parser(name, help=help_text)
         command.add_argument("--config", type=Path, required=name == "doctor", help="獨立連線 JSON 配置")
@@ -99,6 +111,7 @@ def main(argv: list[str] | None = None) -> None:
             from .setup.wizard import terminal_setup
             raise SystemExit(terminal_setup(
                 root=args.config_dir, client=args.client, client_config=args.client_config,
+                tool_profile=args.tool_profile,
             ))
         if args.command in {"serve", "doctor"} and args.config:
             from .profiles import load_profile

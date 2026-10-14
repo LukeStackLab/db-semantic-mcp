@@ -53,7 +53,7 @@ async def test_successful_tool_call_records_metric(env):
 
 
 @pytest.mark.asyncio
-async def test_error_path_does_not_record(env):
+async def test_error_path_records_failure_metric(env):
     from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
     from sqlserver_semantic_mcp.server.app import (
         _TOOL_REGISTRY, register_tool,
@@ -76,7 +76,8 @@ async def test_error_path_does_not_record(env):
 
     await _call("boom_tool", {})
     top = await metrics_service.query_top_tools(cfg.cache_path)
-    assert top == []
+    assert len(top) == 1
+    assert top[0]["error_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -142,4 +143,4 @@ async def test_list_response_captures_array_length(env):
         rows = [dict(r) for r in await cur.fetchall()]
     assert len(rows) == 1
     assert rows[0]["array_length"] == 7
-    assert rows[0]["fields_returned"] is None
+    assert rows[0]["fields_returned"] == 1  # structured {data: [...]} envelope

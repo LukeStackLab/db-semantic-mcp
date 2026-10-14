@@ -128,12 +128,12 @@ def test_direct_execute_happy_path(mock_open, ctx):
     assert env["data"]["executed"] is True
     assert env["data"]["columns"] == ["id", "name"]
     assert env["data"]["row_count"] == 2
-    assert "rows" not in env["data"]
+    assert env["data"]["rows"] == [[1, "A"], [2, "B"]]
     assert env["next_action"] == "refine_or_done"
 
 
 @patch("sqlserver_semantic_mcp.services.query_service.open_connection")
-def test_summary_response_mode_excludes_rows(mock_open, ctx):
+def test_summary_response_mode_preserves_small_result(mock_open, ctx):
     conn = MagicMock()
     cursor = MagicMock()
     cursor.description = [("id",)]
@@ -150,8 +150,10 @@ def test_summary_response_mode_excludes_rows(mock_open, ctx):
     )
     data = env["data"]
     assert data["executed"] is True
-    assert "rows" not in data
+    assert data["rows"] == [[1], [2]]
     assert data["row_count"] == 2
+    assert data["returned_row_count"] == data["total_row_count"] == 2
+    assert data["result_complete"] is True
     assert data["columns"] == ["id"]
 
 
@@ -176,3 +178,6 @@ def test_sample_mode_truncates_rows(mock_open, ctx):
     assert "sample_rows" in data
     assert len(data["sample_rows"]) == 3  # tiny = 3
     assert data["sample_size"] == 3
+    cursor.fetchmany.assert_called_once_with(4)
+    assert data["total_row_count"] is None
+    assert data["returned_row_count"] == 3

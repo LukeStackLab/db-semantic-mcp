@@ -55,8 +55,8 @@ async def test_p95_computed_correctly(cache_path):
             cache_path, "tool_x", response_bytes=n,
         )
     top = await metrics_service.query_top_tools(cache_path)
-    # 10 values; p95 index = int(0.95*10)-1 = 8; sorted[8] = 90
-    assert top[0]["p95_bytes"] == 90
+    # Nearest rank: ceil(0.95 * 10) = 10, so the tenth sorted value.
+    assert top[0]["p95_bytes"] == 100
 
 
 @pytest.mark.asyncio

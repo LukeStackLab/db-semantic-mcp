@@ -57,7 +57,8 @@ def test_diff_summary_counts():
 
 
 def test_fetch_fingerprints_assembles_maps():
-    cfg = MagicMock()
+    from sqlserver_semantic_mcp.config import Config
+    cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
     conn = MagicMock()
     fetch_results = iter([
         # PROBE_COLUMN_FINGERPRINTS: (object_id, col_fp, col_count)
@@ -89,7 +90,8 @@ def test_fetch_fingerprints_assembles_maps():
 
 
 def test_fetch_fingerprints_handles_missing_parts():
-    cfg = MagicMock()
+    from sqlserver_semantic_mcp.config import Config
+    cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
     conn = MagicMock()
     fetch_results = iter([
         [],                                     # columns

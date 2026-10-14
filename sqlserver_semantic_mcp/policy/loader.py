@@ -52,36 +52,22 @@ def load_policy_from_file(
 
     p = Path(path)
     if not p.exists():
-        logger.warning(
-            "Policy file %s not found; using built-in readonly profile", path,
-        )
-        return builtin_readonly()
+        raise ValueError("Explicit policy file is missing; refusing to load")
 
     try:
         text = p.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as e:
-        logger.error(
-            "Policy file %s unreadable (%s); falling back to readonly", path, e,
-        )
-        return builtin_readonly()
+    except (OSError, UnicodeDecodeError):
+        raise ValueError("Explicit policy file is unreadable; refusing to load") from None
 
     try:
         raw = json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error(
-            "Policy file %s has invalid JSON (%s); falling back to readonly",
-            path, e,
-        )
-        return builtin_readonly()
+    except json.JSONDecodeError:
+        raise ValueError("Explicit policy file contains invalid JSON; refusing to load") from None
 
     try:
         pf = PolicyFile.model_validate(raw)
-    except Exception as e:
-        logger.error(
-            "Policy file %s failed schema validation (%s); falling back to readonly",
-            path, e,
-        )
-        return builtin_readonly()
+    except Exception:
+        raise ValueError("Explicit policy file failed schema validation; refusing to load") from None
 
     # Profile-override errors still raise (caller misconfiguration)
     return select_profile(pf, profile_override)

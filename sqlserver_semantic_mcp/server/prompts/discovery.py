@@ -27,11 +27,11 @@ _PROMPT = Prompt(
 _BODY = """You have a business question but not the target tables. Follow the discovery chain:
 
 1. `discover_relevant_tables(goal={goal!r})` — returns a small ranked candidate set.
-2. For the top 2–3 candidates, call `describe_table(detail="brief")` only. Skip "full" until you must.
-3. If the question joins concepts, call `find_join_path` with `score=true` for each plausible pair to pick the best.
-4. When you are confident, draft SQL and call `plan_or_execute_query` with mode="auto".
+2. For the top 2–3 candidates, call `describe_table(detail="standard")`. Use `columns` when the required columns are known. Verify exact column types and complete join_constraints before drafting SQL.
+3. If the question joins concepts, call `find_join_path` with `score=true`. Resolve ambiguous roles and use every column_pair in a constraint. A heuristic score is not a correctness guarantee.
+4. Draft SQL from verified columns and joins, then call `plan_or_execute_query` with mode="auto". For totals and small result sets, preserve actual values in the response.
 
-Keep each step's detail level at "brief" unless the prior step surfaced ambiguity.
+Use brief for initial identification and standard for the columns and joins actually used. Request full only for a concrete metadata gap.
 
 Question: {goal}
 """

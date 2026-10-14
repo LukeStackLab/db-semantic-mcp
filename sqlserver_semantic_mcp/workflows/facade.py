@@ -36,6 +36,7 @@ class WorkflowFacade:
         detail: str = "brief",
         token_budget_hint: Optional[str] = None,
         affected_rows_policy: Optional[str] = None,
+        validate_result_schema: bool = False,
     ) -> dict:
         return plan_or_execute_query(
             query,
@@ -47,6 +48,7 @@ class WorkflowFacade:
             detail=detail,
             token_budget_hint=token_budget_hint,
             affected_rows_policy=affected_rows_policy,
+            validate_result_schema=validate_result_schema,
             cfg=self.cfg,
         )
 
@@ -68,6 +70,7 @@ class WorkflowFacade:
             limit=limit,
             classify=classify,
             cfg=self.cfg,
+            policy=self.policy,
         )
 
     async def bundle_context_for_next_step(
@@ -78,5 +81,5 @@ class WorkflowFacade:
         detail: str = "brief",
     ) -> dict:
         return await bundle_context_for_next_step(
-            items, goal=goal, detail=detail, cfg=self.cfg,
+            items, goal=goal, detail=detail, cfg=self.cfg, policy=self.policy,
         )

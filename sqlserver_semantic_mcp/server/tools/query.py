@@ -1,5 +1,6 @@
 from mcp.types import Tool
 
+from ...infrastructure.workers import run_db_work
 from ..app import get_context, register_tool
 
 
@@ -13,13 +14,14 @@ _BUDGET_PROP = {
 }
 _RESPONSE_MODE_PROP = {
     "type": "string", "enum": ["summary", "rows", "sample", "count_only"],
-    "description": "summary=columns+count; rows=full page; "
-                   "sample=columns+first N; count_only=row_count only.",
+    "description": "summary=columns+up to 3 preview rows; rows=full page; "
+                   "sample=budget-limited preview; count_only=bounded count. "
+                   "total_row_count is null unless the result is complete.",
 }
 _AFFECTED_POLICY_PROP = {
     "type": "string", "enum": ["strict", "report"],
     "description": "strict = roll back if affected rows exceed cap; "
-                   "report = execute and report exceeded_cap.",
+                   "report = report exceeded_cap only when server strict mode is disabled.",
 }
 
 
@@ -28,12 +30,9 @@ def register() -> None:
         Tool(
             name="plan_or_execute_query",
             description=(
-                "v0.5 main entry for SQL-ready agents. mode=auto validates then "
-                "executes if safe; mode=validate validates and reports a risk "
-                "breakdown without executing; mode=dry_run returns a preview "
-                "without side effects. Do not use this for schema discovery — "
-                "use discover_relevant_tables first when the target tables are "
-                "unknown."
+                "Validate T-SQL and execute one policy-approved statement. "
+                "auto executes; validate/dry_run inspect without execution. "
+                "Discover tables and columns first when unknown."
             ),
             inputSchema={
                 "type": "object",
@@ -50,6 +49,10 @@ def register() -> None:
                     "detail":               _DETAIL_PROP,
                     "token_budget_hint":    _BUDGET_PROP,
                     "affected_rows_policy": _AFFECTED_POLICY_PROP,
+                    "validate_result_schema": {
+                        "type": "boolean", "default": False,
+                        "description": "Opt in to SQL Server first-result-set metadata validation before execution.",
+                    },
                 },
                 "required": ["query"],
             },
@@ -64,7 +67,8 @@ def _required_query() -> dict:
 
 async def _plan_or_execute(args: dict) -> dict:
     ctx = get_context()
-    return ctx.workflow.plan_or_execute_query(
+    return await run_db_work(
+        ctx.cfg, ctx.workflow.plan_or_execute_query,
         args["query"],
         mode=args.get("mode", "auto"),
         max_rows=args.get("max_rows"),
@@ -72,4 +76,5 @@ async def _plan_or_execute(args: dict) -> dict:
         detail=args.get("detail", "brief"),
         token_budget_hint=args.get("token_budget_hint"),
         affected_rows_policy=args.get("affected_rows_policy"),
+        validate_result_schema=args.get("validate_result_schema", False),
     )

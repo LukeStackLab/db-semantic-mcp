@@ -78,7 +78,7 @@ def test_write_profile_is_not_guarded(tmp_path, monkeypatch):
     svc = PolicyService()
     svc.load()
     assert svc.validate("UPDATE dbo.T SET x=1 WHERE Id=1")["allowed"] is True
-    assert svc.validate("SELECT * INTO dbo.NEW_T FROM dbo.X")["allowed"] is True
+    assert svc.validate("SELECT * INTO dbo.NEW_T FROM dbo.X")["allowed"] is False
 
 
 def test_mask_literals_keeps_code_outside_tokens():

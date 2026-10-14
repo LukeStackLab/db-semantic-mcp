@@ -116,6 +116,45 @@ MCP policies do not grant SQL Server permissions. Use a dedicated account for ea
 
 To reduce AI usage, ask the agent to find relevant tables before requesting detailed columns. Start queries with summaries or samples. Use `tool_metrics` to inspect response sizes in bytes; actual fees depend on your client, model and usage. Enabling more MCP servers may add tool descriptions to the context, so enable only the connections you need in the client.
 
+<details>
+<summary><b>Query results, joins and tool profiles</b></summary>
+
+`summary` fetches up to 4 rows and returns the first 3, preserving scalar aggregates. `sample` fetches its budget-derived sample plus one row to detect truncation. `row_count` is the observed retained count; `returned_row_count` counts rows actually included in the payload. `total_row_count` is exact only when the result set is exhausted, otherwise null. `truncated` indicates omitted results. Request COUNT_BIG explicitly for an exact full count.
+
+Use `describe_table(detail="standard", columns=["Id", "Amount"])` for selected columns with exact SQL types, complete join constraints, and required join-column metadata. Compound FKs include every column_pair. Parallel FK roles produce bounded candidates and ambiguity. Scores are heuristics; cardinality is unknown without valid uniqueness evidence. Discovery searches local names, column names, descriptions and Traditional Chinese aliases without external models. Customize `discovery_aliases` in connection.json.
+
+`plan_or_execute_query(validate_result_schema=true)` optionally describes SQL Server result metadata before execution. It adds a DB round trip, has limitations such as temporary tables, and does not prove business correctness. It is off by default.
+
+```bash
+sqlserver-semantic-mcp setup --tool-profile explore
+```
+
+| Profile | Tools | Purpose |
+|---|---:|---|
+| all (default) | 12 | Full functionality |
+| query | 2 | Policy and execution for already verified SQL |
+| explore | 8 | Discover tables, columns and joins, then query |
+| maintenance | 3 | Policy, cache refresh and metrics |
+
+Existing profiles can set tool_profile in connection.json and restart. Omitting the setup option preserves the existing selection. Tool selection does not grant DB permissions. List results use a data envelope; tools provide structuredContent/outputSchema and isError for failures.
+
+</details>
+
+<details>
+<summary><b>Authorization, cache and compatibility</b></summary>
+
+Authorization always uses strict TSQL AST analysis, including when legacy routing uses regex. It checks every statement and physical reference. Unsupported/remote/dynamic sources, transaction control and SELECT INTO fail closed. Execution accepts one statement; validation can inspect a policy-approved batch. Explicit invalid/missing legacy policy files and unknown policy fields now stop startup. A caller's report option cannot lower a server strict affected-row cap.
+
+SQL, metadata, resources, FKs and object dependencies share scope. allowed_tables supports bare, schema-qualified and database-qualified TSQL identifiers. Allow comparisons retain case for case-sensitive databases; deny comparisons also reject case variants. Restricted scopes conservatively reject metadata functions that may read other objects. Dedicated SQL accounts remain the final enforcement boundary. Confirmed commits remain successful even if cleanup fails. An uncertain commit/rollback returns transaction_state="unknown" and automatic_retry_allowed=false: executed=false does not prove rollback, so verify the DB outcome before retrying. Unverifiable or restricted definitions are withheld with explicit omission flags.
+
+Old SQLite stores migrate automatically. Legacy FK rows without constraint identity and missing valid uniqueness evidence remain incomplete until refreshed. Snapshots, including comments, have a default maximum age of 300 seconds. Both tools and resources schedule single-flight background revalidation and expose capture/stale/refreshing state. An offline DB can leave explicitly stale cached results.
+
+Each process defaults to 4 DB workers. Cancelling a waiter does not interrupt the synchronous driver: capacity remains occupied until cleanup finishes. Configure db_worker_limit and schema_cache_ttl_s in connection.json. tool_metrics includes bytes, latency percentiles, worker wait, DB lifecycle duration, fetched rows, observed cache hits and failure categories without storing SQL, rows or passwords. DB lifecycle duration includes connection/fetch time, not SQL Server CPU time.
+
+This update does not add response-byte/cell limits or change TLS behavior. Structured contracts increase full-profile descriptor size; choose query for known SQL to reduce context. Measure actual tokens and throughput with your client and database. MCP Python SDK 1.27+ is required.
+
+</details>
+
 ## Profile storage and maintenance
 
 Each profile lives in `connections/<MCP name>/` and contains `connection.json`, `policy.json` and a separate cache. Passwords are stored in the system keyring when available.

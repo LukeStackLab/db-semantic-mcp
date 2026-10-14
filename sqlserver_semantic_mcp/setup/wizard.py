@@ -229,6 +229,7 @@ def _rollback(items: list[Applied], emit) -> None:
 def run_setup(
     *, root: Path | None = None, client: str | None = None,
     client_config: Path | None = None, input_fn=None, password_fn=None, emit=print,
+    tool_profile: str | None = None,
 ) -> int:
     interactive = input_fn is None
     if interactive and not sys.stdin.isatty():
@@ -236,6 +237,8 @@ def run_setup(
     input_fn = input_fn or input
     password_fn = password_fn or getpass.getpass
     root = (root or default_config_root()).expanduser().absolute()
+    if tool_profile is not None:
+        ConnectionProfile(name="validation", server="x", database="x", user="x", tool_profile=tool_profile)
     if root.is_symlink():
         raise SetupError("配置根目錄不得為符號連結。")
     applied: list[Applied] = []
@@ -284,6 +287,8 @@ def run_setup(
             profile, password = _gather_connection(
                 name, previous, directory, input_fn, password_fn,
             )
+            if tool_profile is not None:
+                profile = profile.model_copy(update={"tool_profile": tool_profile})
             while True:
                 emit("正在測試登入與 metadata 存取……")
                 try:
