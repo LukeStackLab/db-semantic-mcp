@@ -107,9 +107,11 @@ def native_type(data_type, precision, scale, char_length, char_used):
 def _inventory_scope(cfg, suffix):
     from ...services.policy_service import PolicyService
 
-    scope = PolicyService(cfg).current_policy().scope
+    scope = PolicyService(cfg).effective_scope()
     if scope.allowed_schemas:
-        params = {f"schema_{i}": value for i, value in enumerate(scope.allowed_schemas)}
+        from ...policy.intents.oracle_analyzer import oracle_identifier
+
+        params = {f"schema_{i}": oracle_identifier(value) for i, value in enumerate(scope.allowed_schemas)}
         owners = ",".join(":" + key for key in params)
     else:
         params = {}
@@ -242,8 +244,10 @@ def fetch_snapshot(cfg: Config, conn=None):
     return StructuralSnapshot(tables, columns, primary_keys, foreign_keys, indexes, objects, comments)
 
 
-def get_object_definition(cfg: Config, schema: str, name: str, object_type: str | None = None) -> str | None:
-    with _connection(cfg) as conn:
+def get_object_definition(
+    cfg: Config, schema: str, name: str, object_type: str | None = None, *, conn=None
+) -> str | None:
+    with _connection(cfg, conn) as conn:
         s = catalog_suffix(cfg, conn)
         params = {"owner": schema, "name": name}
         if object_type is None:
@@ -272,14 +276,16 @@ def get_object_definition(cfg: Config, schema: str, name: str, object_type: str 
         return None
 
 
-def get_object_dependencies(cfg: Config, schema: str, name: str) -> list[tuple]:
-    with _connection(cfg) as conn:
+def get_object_dependencies(cfg: Config, schema: str, name: str, *, object_type=None, conn=None) -> list[tuple]:
+    with _connection(cfg, conn) as conn:
         s = catalog_suffix(cfg, conn)
         return _fetch(
             conn,
             f"SELECT referenced_owner,referenced_name,referenced_type,referenced_link_name FROM all_dependencies{s} "
-            "WHERE owner=:owner AND name=:name ORDER BY referenced_owner,referenced_name,referenced_type",
-            {"owner": schema, "name": name},
+            "WHERE owner=:owner AND name=:name "
+            + ("AND type=:type " if object_type else "")
+            + "ORDER BY referenced_owner,referenced_name,referenced_type",
+            {"owner": schema, "name": name, **({"type": object_type} if object_type else {})},
         )
 
 

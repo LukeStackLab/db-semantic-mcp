@@ -15,5 +15,9 @@ _REGISTRY: dict[str, type] = {
 
 def get_analyzer(cfg: Config | None = None) -> IntentAnalyzer:
     cfg = cfg or get_config()
+    if cfg.database_type == "oracle":
+        from .oracle_analyzer import OracleIntentAnalyzer
+
+        return OracleIntentAnalyzer()
     cls = _REGISTRY.get(cfg.intent_analyzer, RegexIntentAnalyzer)
     return cls()

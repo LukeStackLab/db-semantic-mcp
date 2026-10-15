@@ -19,9 +19,15 @@ class ObjectReference:
     database: str
     schema: str
     name: str
+    source: str = "local"
+    db_link: str = ""
+    dialect: str = "tsql"
 
     @property
     def display_name(self) -> str:
+        if self.dialect == "oracle":
+            value = ".".join('"' + part.replace('"', '""') + '"' for part in (self.schema, self.name) if part)
+            return value + ("@" + self.db_link if self.db_link else "")
         components = [self.database, self.schema, self.name]
         return ".".join("[" + part.replace("]", "]]") + "]" for part in components if part)
 
@@ -92,3 +98,23 @@ def object_allowed(scope: PolicyScope, database: str, schema: str, name: str) ->
         ref.name == name and (not ref.schema or ref.schema == schema) and (not ref.database or ref.database == database)
         for ref in allowed
     )
+
+
+def oracle_object_allowed(scope, database: str, schema: str, name: str) -> bool:
+    """Oracle unquoted policy names fold uppercase; quoted names stay exact."""
+    from .intents.oracle_analyzer import oracle_identifier, oracle_scope_entry
+
+    try:
+        if not name or not database_allowed(scope, database):
+            return False
+        if scope.allowed_schemas and schema not in [oracle_identifier(s) for s in scope.allowed_schemas]:
+            return False
+
+        def matches(ref):
+            return ref.name == name and (not ref.schema or ref.schema == schema)
+
+        if any(matches(oracle_scope_entry(s)) for s in scope.denied_tables):
+            return False
+        return not scope.allowed_tables or any(matches(oracle_scope_entry(s)) for s in scope.allowed_tables)
+    except ValueError:
+        return False

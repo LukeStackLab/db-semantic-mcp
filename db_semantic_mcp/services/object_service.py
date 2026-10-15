@@ -121,6 +121,8 @@ async def describe_object(
     policy: PolicyService | None = None,
 ) -> dict:
     cfg = cfg or get_config()
+    if cfg.database_type == "oracle":
+        return await run_db_work(cfg, _describe_oracle, cfg, schema, object_name, object_type, policy)
     db = cfg.database
     if policy is not None:
         policy.authorize_object(schema, object_name, database=db)
@@ -370,3 +372,124 @@ def _apply_scope(
     if hidden:
         out["dependencies_omitted"] = True
     return out
+
+
+def _describe_oracle(cfg, schema, name, object_type, policy):
+    """Live Oracle catalog definitions; PL/SQL is never fed to the TSQL parser."""
+    from ..infrastructure.backends import oracle_catalog as catalog
+    from ..infrastructure.backends.oracle_resolution import OracleResolver, resolve_object
+    from ..infrastructure.connection import open_connection
+    from ..policy.scope import ObjectReference, oracle_object_allowed
+
+    policy = policy or PolicyService(cfg)
+    kind = object_type.upper()
+    if kind not in {"VIEW", "MATERIALIZED VIEW", "PROCEDURE", "FUNCTION", "PACKAGE", "PACKAGE BODY", "SYNONYM"}:
+        return {"status": "error", "error_message": "Unsupported Oracle object type"}
+    try:
+        with open_connection(cfg.for_source("local")) as conn:
+            resolver = OracleResolver(cfg, conn, policy.current_policy())
+            source_cfg = resolver.source_config(cfg.source_id)
+            scope = (
+                policy.current_policy().scope
+                if cfg.source_id == "local"
+                else policy.current_policy().scope.sources[cfg.source_id]
+            )
+            if not oracle_object_allowed(scope, cfg.database, schema, name):
+                raise PermissionError("Oracle object is denied by source scope")
+            suffix = resolver._suffix(cfg.source_id)
+            exists = catalog._fetch(
+                conn,
+                f"SELECT object_type FROM all_objects{suffix} "
+                "WHERE owner=:owner AND object_name=:name AND object_type=:type",
+                {"owner": schema, "name": name, "type": kind},
+            )
+            if not exists:
+                raise ValueError("Object is missing or inaccessible")
+            if kind == "SYNONYM":
+                resolved = resolve_object(cfg, conn, policy.current_policy(), schema, name, source=cfg.source_id)
+                return {
+                    "status": "ready",
+                    "database_name": cfg.database,
+                    "source": cfg.source_id,
+                    "schema": schema,
+                    "object_name": name,
+                    "object_type": kind,
+                    "definition": None,
+                    "resolution_chain": resolved["chain"],
+                    "resolved_target": resolved["target"],
+                    "dependencies": resolved["chain"][1:],
+                    "dependency_completeness": "resolved_path",
+                    "read_tables": [],
+                    "write_tables": [],
+                    "affected_tables": [],
+                    "io_completeness": "unknown",
+                }
+            definition = catalog.get_object_definition(source_cfg, schema, name, kind, conn=conn)
+            dependencies = catalog.get_object_dependencies(source_cfg, schema, name, object_type=kind, conn=conn)
+            restricted = any(
+                (scope.allowed_databases, scope.allowed_schemas, scope.allowed_tables, scope.denied_tables)
+            )
+            visible = []
+            hidden = False
+            for owner, dep_name, dep_type, link in dependencies:
+                try:
+                    dep_source = (
+                        resolver.source_for_link(link, "SELECT") if link and cfg.source_id == "local" else cfg.source_id
+                    )
+                    if link and cfg.source_id != "local":
+                        raise PermissionError("Chained remote dependency")
+                    dep_scope = (
+                        policy.current_policy().scope
+                        if dep_source == "local"
+                        else policy.current_policy().scope.sources[dep_source]
+                    )
+                    if not oracle_object_allowed(dep_scope, cfg.database, owner or "", dep_name):
+                        raise PermissionError("Dependency scope")
+                    if dep_type in {"TABLE", "VIEW", "MATERIALIZED VIEW", "SYNONYM"}:
+                        resolver.resolve(
+                            ObjectReference("", owner or "", dep_name, source=dep_source, dialect="oracle")
+                        )
+                    visible.append({"source": dep_source, "schema": owner, "name": dep_name, "object_type": dep_type})
+                except Exception:  # noqa: BLE001 (fail closed without driver or SQL disclosure)
+                    hidden = True
+            reads = []
+            io_complete = False
+            if kind == "VIEW":
+                try:
+                    resolver.resolve(ObjectReference("", schema, name, source=cfg.source_id, dialect="oracle"))
+                    reads = [
+                        {"source": r.source, "schema": r.schema, "name": r.name}
+                        for r in resolver.result.references
+                        if resolver.result.object_types.get(r) in {"TABLE", "MATERIALIZED VIEW"}
+                    ]
+                    io_complete = True
+                except Exception:  # noqa: BLE001 (fail closed without driver or SQL disclosure)
+                    hidden = True
+            withheld = hidden or restricted and kind not in {"VIEW", "MATERIALIZED VIEW"}
+            # Materialized-view SQL can name objects/functions beyond static deps.
+            if restricted and kind == "MATERIALIZED VIEW":
+                withheld = True
+            return {
+                "status": "restricted" if withheld else "ready",
+                "database_name": cfg.database,
+                "source": cfg.source_id,
+                "schema": schema,
+                "object_name": name,
+                "object_type": kind,
+                "definition": None if withheld else definition,
+                "dependencies": visible,
+                "dependency_completeness": "static_catalog_only",
+                "dependencies_omitted": hidden,
+                "read_tables": reads if not withheld else [],
+                "write_tables": [],
+                "affected_tables": [],
+                "io_completeness": "complete_select_sources" if io_complete and not withheld else "unknown",
+                "definition_withheld": withheld,
+                **(
+                    {"definition_omission_reason": "Transitive or dynamic object scope cannot be proven"}
+                    if withheld
+                    else {}
+                ),
+            }
+    except Exception:  # noqa: BLE001 (fail closed without driver or SQL disclosure)
+        return {"status": "error", "error_message": "Unable to load authorized Oracle object metadata"}

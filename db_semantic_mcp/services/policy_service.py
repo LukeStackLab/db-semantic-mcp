@@ -7,14 +7,14 @@ from ..policy.enforcer import enforce
 from ..policy.intents import get_analyzer
 from ..policy.intents.ast_analyzer import AstIntentAnalyzer
 from ..policy.loader import apply_env_overrides, load_active_policy
-from ..policy.models import PolicyFile, PolicyProfile
+from ..policy.models import PolicyFile, PolicyProfile, PolicyScope
 from ..policy.readonly_guard import (
     is_select_only,
     keyword_hits_in_masked,
     keywords_in_masked,
     mask_literals,
 )
-from ..policy.scope import object_allowed
+from ..policy.scope import object_allowed, oracle_object_allowed
 from ..setup.files import read_snapshot
 
 
@@ -23,7 +23,9 @@ class PolicyService:
         self._cfg = cfg or get_config()
         self._policy: PolicyProfile | None = None
         self._analyzer = get_analyzer(self._cfg)
-        self._authorization_analyzer = AstIntentAnalyzer()
+        self._authorization_analyzer = (
+            get_analyzer(self._cfg) if self._cfg.database_type == "oracle" else AstIntentAnalyzer()
+        )
 
     def load(self) -> None:
         if not self._cfg.connection_name:
@@ -57,14 +59,32 @@ class PolicyService:
     def analyze(self, sql: str) -> SqlIntent:
         return self._analyzer.analyze(sql)
 
+    def effective_scope(self):
+        """Metadata scope for the selected source; route selection is not a grant."""
+        policy = self.current_policy()
+        if self._cfg.source_id == "local":
+            return policy.scope
+        if policy.scope.allowed_databases and self._cfg.database not in policy.scope.allowed_databases:
+            raise PermissionError("Database is not enabled by the global policy")
+        source = policy.scope.sources.get(self._cfg.source_id)
+        if source is None or not source.operations.select or not policy.operations.select:
+            raise PermissionError("Remote source metadata requires explicit SELECT policy")
+        return source
+
     def object_allowed(self, schema: str, name: str, database: str = "") -> bool:
+        if self._cfg.database_type == "oracle":
+            return oracle_object_allowed(self.effective_scope(), database or self._cfg.database, schema, name)
         return object_allowed(self.current_policy().scope, database or self._cfg.database, schema, name)
 
     def authorize_object(self, schema: str, name: str, database: str = "") -> None:
         if not self.object_allowed(schema, name, database):
             raise PermissionError(f"Object '{schema}.{name}' is denied by policy scope")
 
-    def validate(self, sql: str, database: str = "", intent: SqlIntent | None = None) -> dict:
+    def validate(
+        self, sql: str, database: str = "", intent: SqlIntent | None = None, *, conn=None, resolve_sources=True
+    ) -> dict:
+        if self._cfg.database_type == "oracle":
+            return self._validate_oracle(sql, database, conn=conn, resolve_sources=resolve_sources)
         policy = self.current_policy()
         if intent is None or not isinstance(self._analyzer, AstIntentAnalyzer):
             # Routing reuses the strict AST analysis only when the routing
@@ -106,6 +126,71 @@ class PolicyService:
         }
         if denial:
             out["denial"] = denial
+        return out
+
+    def _validate_oracle(self, sql, database, *, conn=None, resolve_sources=True):
+        from dataclasses import replace
+
+        from ..infrastructure.backends.oracle_resolution import OracleResolver
+        from ..infrastructure.connection import open_connection
+
+        intent = self._authorization_analyzer.analyze(sql)
+        policy = self.current_policy()
+        # Operations and row constraints apply globally; live source resolution
+        # applies local/remote object scopes separately to every alias and target.
+        base = policy.model_copy(update={"scope": PolicyScope(allowed_databases=policy.scope.allowed_databases)})
+        result = enforce(
+            replace(intent, object_references=[], affected_tables=[]), base, database=database or self._cfg.database
+        )
+        allowed, reason, rule = result.allowed, result.reason, result.rule
+        resolved = None
+        if allowed and self._cfg.connection_name and intent.primary_operation.value != "SELECT":
+            if self._cfg.policy_profile != "read_write_safe" or not intent.is_simple_write:
+                allowed, reason, rule = False, "Fixed profile does not enable this write", "fixed_profile_rule"
+        if allowed and resolve_sources:
+            try:
+
+                def authorize(connection):
+                    resolver = OracleResolver(self._cfg.for_source("local"), connection, policy)
+                    for ref in intent.object_references:
+                        resolver.resolve(ref, intent.primary_operation.value)
+                    from ..policy.intents.oracle_analyzer import parse_oracle
+
+                    resolver.verify_columns(parse_oracle(sql)[0])
+                    return resolver.result
+
+                if conn is not None:
+                    resolved = authorize(conn)
+                else:
+                    with open_connection(self._cfg.for_source("local")) as connection:
+                        resolved = authorize(connection)
+            except Exception:  # noqa: BLE001 (catalog/driver details can contain credentials)
+                allowed, reason, rule = (
+                    False,
+                    "Oracle source, synonym target or operation cannot be authorized",
+                    "object_scope",
+                )
+        out = {
+            "allowed": allowed,
+            "reason": reason,
+            "intent": intent_to_dict(intent),
+            "source_resolution": "verified_session" if resolved else "pending" if allowed else "denied",
+        }
+        if resolved:
+            out["resolved_objects"] = [
+                {"source": r.source, "schema": r.schema, "name": r.name} for r in resolved.references
+            ]
+            out["sources"] = sorted({r.source for r in resolved.references})
+        if not allowed:
+            hints = {
+                "sql_not_authorizable": "Use one Oracle SELECT or simple INSERT VALUES / UPDATE WHERE. Custom functions, PL/SQL, NEXTVAL, FOR UPDATE and RETURNING are unsupported.",
+                "top_required": "Add FETCH FIRST n ROWS ONLY to every outer SELECT branch.",
+                "object_scope": "Use explicitly configured DB links and permit every synonym alias and physical target in its source scope. Quote case-sensitive Oracle names with double quotes.",
+            }
+            out["denial"] = _denial("oracle_policy", rule, reason, result.detail)
+            out["denial"]["hint"] = hints.get(
+                rule, "Use an Oracle operation and source explicitly enabled by the active policy."
+            )
         return out
 
     def _check_fixed_query(self, intent: SqlIntent, masked: str, keywords: list[str] | None = None) -> tuple[bool, str]:

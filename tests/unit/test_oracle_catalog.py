@@ -178,8 +178,10 @@ def test_inventory_scope_pushes_schema_binds_and_explains_system_default(monkeyp
 
     from db_semantic_mcp.services import policy_service
 
-    policy = SimpleNamespace(scope=SimpleNamespace(allowed_schemas=["SYS", "Quoted Schema"]))
-    monkeypatch.setattr(policy_service, "PolicyService", lambda cfg: SimpleNamespace(current_policy=lambda: policy))
+    policy = SimpleNamespace(scope=SimpleNamespace(allowed_schemas=["SYS", '"Quoted Schema"']))
+    monkeypatch.setattr(
+        policy_service, "PolicyService", lambda cfg: SimpleNamespace(effective_scope=lambda: policy.scope)
+    )
     owners, params = catalog._inventory_scope(cfg(), "@LINK")
     assert owners == ":schema_0,:schema_1"
     assert params == {"schema_0": "SYS", "schema_1": "Quoted Schema"}

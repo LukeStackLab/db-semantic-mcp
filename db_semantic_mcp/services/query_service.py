@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from enum import Enum
 from typing import Any
 
 from ..config import Config, get_config
+from ..infrastructure.backends import backend_for
 from ..infrastructure.connection import open_connection
 from ..policy.analyzer import SqlIntent
 from .policy_service import PolicyService, intent_to_dict
@@ -34,15 +36,21 @@ def _json_default(value: Any) -> str:
     return str(value)
 
 
-def _cap_cell(value: Any, max_chars: int) -> Any:
+def _cap_cell(value: Any, max_chars: int, *, length_known: bool = True) -> Any:
     """Bound one value; large text and binary are the unbounded-token vector."""
     if isinstance(value, (bytes, bytearray, memoryview)):
         raw = bytes(value)
         shown = raw[: max_chars // 2].hex()
-        suffix = "" if len(raw) <= max_chars // 2 else f"...[{len(raw)} bytes total]"
+        suffix = (
+            "" if len(raw) <= max_chars // 2 else (f"...[{len(raw)} bytes total]" if length_known else "...[truncated]")
+        )
         return f"0x{shown}{suffix}"
     if isinstance(value, str) and len(value) > max_chars:
-        return f"{value[:max_chars]}...[truncated, {len(value)} chars total]"
+        return (
+            f"{value[:max_chars]}...[truncated, {len(value)} chars total]"
+            if length_known
+            else f"{value[:max_chars]}...[truncated]"
+        )
     return value
 
 
@@ -62,6 +70,7 @@ class QueryService:
     ) -> None:
         self._policy = policy_service
         self._cfg = cfg or get_config()
+        self._backend = backend_for(self._cfg)
 
     # ------------------------------------------------------------------ 1. validate
 
@@ -140,14 +149,21 @@ class QueryService:
         # Fixed connection profiles always roll back over-cap writes. Other
         # profiles only do so when asked; otherwise the overshoot is reported.
         strict_cap = bool(
-            self._cfg.connection_name or self._cfg.strict_rows_affected_cap or affected_rows_policy == "strict"
+            self._cfg.database_type == "oracle"
+            or self._cfg.connection_name
+            or self._cfg.strict_rows_affected_cap
+            or affected_rows_policy == "strict"
         )
 
         db = database or self._cfg.database
         policy = self._policy.current_policy()
         limit = min(max_rows or policy.constraints.max_rows_returned, policy.constraints.max_rows_returned)
 
-        validation = self._policy.validate(sql, database=db)
+        validation = (
+            self._policy.validate(sql, database=db, resolve_sources=False)
+            if self._cfg.database_type == "oracle"
+            else self._policy.validate(sql, database=db)
+        )
         denial = self._execution_denial(validation)
         if denial is not None:
             return denial
@@ -189,6 +205,12 @@ class QueryService:
         statement_started = False
         try:
             with open_connection(self._cfg) as conn:
+                if self._cfg.database_type == "oracle":
+                    conn.autocommit = False
+                    validation = self._policy.validate(sql, conn=conn)
+                    denial = self._execution_denial(validation)
+                    if denial is not None:
+                        return denial
                 cursor = conn.cursor()
                 try:
                     result_schema = None
@@ -215,7 +237,7 @@ class QueryService:
                     if op == "SELECT":
                         result = self._shape_select(cursor, limit, validation)
                         if result_schema is not None:
-                            result["result_schema"] = result_schema
+                            self._attach_result_schema(result, result_schema)
                         return result
 
                     result = self._shape_non_select(
@@ -266,9 +288,20 @@ class QueryService:
     # ------------------------------------------------------------------ helpers
 
     def _safe_message(self, exc: Exception) -> str:
+        from ..infrastructure.backends.oracle import OracleResultTypeError
+
+        if isinstance(exc, OracleResultTypeError):
+            return str(exc)  # fixed diagnostic, no driver detail or caller SQL
         message = str(exc)
         if self._cfg.password:
             message = message.replace(self._cfg.password, "***")
+        if self._cfg.oracle and self._cfg.oracle.wallet_password_env:
+            secret = os.environ.get(self._cfg.oracle.wallet_password_env)
+            if secret:
+                message = message.replace(secret, "***")
+        if self._cfg.database_type == "oracle":
+            # Oracle errors can include connect descriptors, wallet paths and SQL.
+            return "Oracle database operation failed"
         return message
 
     def _note_cleanup_failure(self, result: dict, component: str, exc: Exception) -> None:
@@ -283,30 +316,35 @@ class QueryService:
             result["automatic_retry_allowed"] = False
             result["warning"] = "Transaction committed; cleanup failed. Do not retry this write"
 
-    @staticmethod
-    def _describe_result_schema(cursor: Any, sql: str) -> list[dict]:
-        cursor.execute(
-            "SELECT column_ordinal, name, system_type_name, is_nullable, "
-            "error_number, error_message FROM "
-            "sys.dm_exec_describe_first_result_set(%s, NULL, 0)",
-            (sql,),
-        )
-        columns = []
-        for ordinal, name, type_name, nullable, error_number, error_message in cursor.fetchall():
-            if error_number is not None or error_message:
-                raise ValueError(error_message or f"SQL Server metadata error {error_number}")
-            columns.append({"ordinal": ordinal, "name": name, "type": type_name, "is_nullable": bool(nullable)})
-        return columns
+    def _describe_result_schema(self, cursor: Any, sql: str) -> list[dict]:
+        return self._backend.describe_result_schema(cursor, sql)
+
+    def _attach_result_schema(self, result, result_schema):
+        payload = [result.get("columns", []), result.get("rows", []), result_schema]
+        if (
+            len(json.dumps(payload, ensure_ascii=False, default=_json_default).encode("utf-8"))
+            > self._cfg.max_response_bytes
+        ):
+            result.update(
+                result_schema_omitted=True, truncated=True, result_complete=False, next_action="refine_or_done"
+            )
+            result.setdefault("truncation_reason", "result_schema_metadata_limit")
+        else:
+            result["result_schema"] = result_schema
 
     def _shape_select(self, cursor: Any, limit: int, validation: dict) -> dict:
         columns = [d[0] for d in cursor.description]
         max_bytes = self._cfg.max_response_bytes
         max_chars = self._cfg.max_cell_chars
         # Budget starts with the column header; rows share what remains.
-        used = len(json.dumps(columns, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        used = len(json.dumps(columns, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 2  # rows []
+        metadata_omitted = used > max_bytes
+        column_count = len(columns)
+        if metadata_omitted:
+            columns = []
         rows: list[list] = []
         fetched = 0
-        reason: str | None = None
+        reason: str | None = "column_metadata_limit" if metadata_omitted else None
         while reason is None:
             want = min(_FETCH_CHUNK, limit + 1 - fetched)
             if want <= 0:
@@ -317,7 +355,14 @@ class QueryService:
                 if len(rows) >= limit:
                     reason = "row_limit"
                     break
-                row = [_cap_cell(v, max_chars) for v in raw]
+                row = [
+                    _cap_cell(
+                        self._backend.convert_value(v, self._cfg),
+                        max_chars,
+                        length_known=not (self._cfg.database_type == "oracle" and callable(getattr(v, "read", None))),
+                    )
+                    for v in raw
+                ]
                 size = _row_bytes(row)
                 if used + size > max_bytes:
                     reason = "byte_limit"
@@ -341,11 +386,16 @@ class QueryService:
             "result_complete": not truncated,
             "next_action": "refine_or_done" if truncated else "done",
         }
+        if metadata_omitted:
+            result.update(columns_omitted=True, column_count=column_count)
+            result["truncation_hint"] = (
+                "Column metadata exceeds the response cap. Select fewer columns or shorter aliases."
+            )
         if truncated:
             result["truncation_reason"] = reason
             if reason == "byte_limit":
                 result["truncation_hint"] = (
-                    "Output byte limit reached. Select fewer columns, add a WHERE or TOP, or aggregate to see the rest."
+                    "Output byte limit reached. Select fewer columns, add a WHERE or row limit, or aggregate to see the rest."
                 )
         return result
 

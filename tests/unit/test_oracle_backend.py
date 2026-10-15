@@ -235,3 +235,79 @@ def test_profile_rejects_whitespace_identifiers(field):
     values = {"name": "test", "server": "s", "database": "d", "user": "u", field: "   "}
     with pytest.raises(ValueError):
         ConnectionProfile(**values)
+
+
+@pytest.mark.parametrize(
+    "kind,scale,allowed",
+    [
+        ("DB_TYPE_TIMESTAMP", 6, True),
+        ("DB_TYPE_TIMESTAMP", 0, True),
+        ("DB_TYPE_TIMESTAMP", 9, False),
+        ("DB_TYPE_TIMESTAMP", None, False),
+        ("DB_TYPE_TIMESTAMP_TZ", 6, False),
+        ("DB_TYPE_TIMESTAMP_LTZ", 6, False),
+        ("DB_TYPE_DATE", 0, True),
+    ],
+)
+def test_thin_temporal_output_never_silently_loses_precision_or_timezone(kind, scale, allowed):
+    driver = SimpleNamespace(
+        **{
+            k: k
+            for k in [
+                "DB_TYPE_NUMBER",
+                "DB_TYPE_VARCHAR",
+                "DB_TYPE_TIMESTAMP",
+                "DB_TYPE_TIMESTAMP_TZ",
+                "DB_TYPE_TIMESTAMP_LTZ",
+                "DB_TYPE_DATE",
+            ]
+        }
+    )
+    handler = oracle.number_output_handler(driver, driver_mode="thin")
+    cursor = MagicMock()
+    metadata = SimpleNamespace(type_code=getattr(driver, kind), scale=scale)
+    if allowed:
+        assert handler(cursor, metadata) is None
+    else:
+        with pytest.raises(oracle.OracleResultTypeError, match="TO_CHAR"):
+            handler(cursor, metadata)
+    cursor.var.assert_not_called()
+
+
+def test_thick_temporal_strings_keep_ff9_and_zone_without_datetime_conversion():
+    driver = SimpleNamespace(
+        **{
+            k: k
+            for k in [
+                "DB_TYPE_NUMBER",
+                "DB_TYPE_VARCHAR",
+                "DB_TYPE_TIMESTAMP",
+                "DB_TYPE_TIMESTAMP_TZ",
+                "DB_TYPE_TIMESTAMP_LTZ",
+                "DB_TYPE_DATE",
+            ]
+        }
+    )
+    cursor = MagicMock(arraysize=100)
+    handler = oracle.number_output_handler(driver, driver_mode="thick")
+    handler(cursor, SimpleNamespace(type_code=driver.DB_TYPE_TIMESTAMP_TZ, scale=9))
+    kwargs = cursor.var.call_args.kwargs
+    assert kwargs["size"] >= 100
+    assert (
+        kwargs["outconverter"]("2026-10-15T12:34:56.123456789 ASIA/TAIPEI CST")
+        == "2026-10-15T12:34:56.123456789 ASIA/TAIPEI CST"
+    )
+    handler(cursor, SimpleNamespace(type_code=driver.DB_TYPE_TIMESTAMP_LTZ, scale=9))
+    assert (
+        cursor.var.call_args.kwargs["outconverter"]("2026-10-15T04:34:56.123456789") == "2026-10-15T04:34:56.123456789Z"
+    )
+    assert "FF9 TZR TZD" in oracle._SESSION_FORMATS
+    assert "TIME_ZONE = '+00:00'" in oracle._SESSION_FORMATS
+
+
+def test_temporal_capabilities_are_precision_and_timezone_specific():
+    thin = oracle.OracleBackend().capabilities(oracle_config())
+    thick = oracle.OracleBackend().capabilities(oracle_config(oracle={"service_name": "db", "driver_mode": "thick"}))
+    assert thin["native_timestamp_max_precision"] == 6 and not thin["native_timestamp_timezone"]
+    assert thick["native_timestamp_max_precision"] == 9 and thick["native_timestamp_timezone"]
+    assert "TO_CHAR" in thin["timestamp_workaround"]
