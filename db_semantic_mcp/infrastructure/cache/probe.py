@@ -106,6 +106,11 @@ def fetch_fingerprints(
 
     Synchronous (pymssql); call via asyncio.to_thread from async code.
     """
+    if cfg.database_type == "oracle":
+        from ..backends import backend_for
+
+        return backend_for(cfg).fetch_fingerprints(cfg, conn)
+
     if conn is None:
         with open_connection(cfg) as owned:
             return fetch_fingerprints(cfg, conn=owned)

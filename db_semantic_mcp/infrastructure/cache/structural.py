@@ -312,6 +312,11 @@ def fetch_snapshot_from_server(
     cfg: Config,
     conn: Any | None = None,
 ) -> StructuralSnapshot:
+    if cfg.database_type == "oracle":
+        from ..backends import backend_for
+
+        return backend_for(cfg).fetch_snapshot(cfg, conn)
+
     if conn is None:
         with open_connection(cfg) as owned:
             return fetch_snapshot_from_server(cfg, conn=owned)

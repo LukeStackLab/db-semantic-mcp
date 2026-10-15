@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from .config import Config
+from .config import Config, OracleOptions, RemoteSource
 from .credentials import CredentialReference, read_password
 from .policy.models import PolicyFile, PolicyOperations, PolicyProfile
 from .setup.files import SetupError, read_snapshot
@@ -17,12 +17,15 @@ from .setup.files import SetupError, read_snapshot
 
 class ConnectionProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    format_version: Literal[1] = 1
+    format_version: Literal[2] = 2
+    database_type: Literal["sqlserver", "oracle"] = "sqlserver"
+    oracle: OracleOptions | None = None
+    sources: dict[str, RemoteSource] = Field(default_factory=dict)
     name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-    server: str = Field(min_length=1)
+    server: str = ""
     database: str = Field(min_length=1)
     user: str = Field(min_length=1)
-    port: int = Field(default=1433, ge=1, le=65535)
+    port: int | None = Field(default=None, ge=1, le=65535)
     readonly: bool = True
     max_response_bytes: int = Field(default=65536, ge=1024)
     max_cell_chars: int = Field(default=2000, ge=16)
@@ -39,10 +42,31 @@ class ConnectionProfile(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def drop_retired_fields(cls, data):
-        # Profiles written before the token-budget tiers were removed.
-        if isinstance(data, dict) and "budget" in data:
-            data = {k: v for k, v in data.items() if k != "budget"}
+        # Unversioned in-process legacy construction only; read_profile rejects v1 files.
+        if isinstance(data, dict) and "format_version" not in data and "budget" in data:
+            return {k: v for k, v in data.items() if k != "budget"}
         return data
+
+    @model_validator(mode="after")
+    def validate_connection(self):
+        defaults = {
+            name: field.get_default(call_default_factory=True)
+            for name, field in Config.model_fields.items()
+            if not field.is_required()
+        }
+        defaults.update(
+            server=self.server,
+            database=self.database,
+            user=self.user,
+            database_type=self.database_type,
+            oracle=self.oracle,
+            sources=self.sources,
+            port=self.port,
+            windows_auth=False,
+        )
+        cfg = Config.from_fixed(**defaults)
+        object.__setattr__(self, "port", cfg.port)
+        return self
 
     @field_validator("tool_profile")
     @classmethod
@@ -68,9 +92,9 @@ class ConnectionProfile(BaseModel):
 
     @field_validator("server", "database", "user")
     @classmethod
-    def clean_text(cls, value: str) -> str:
+    def clean_text(cls, value: str, info) -> str:
         value = value.strip()
-        if not value or any(ord(ch) < 32 for ch in value):
+        if (not value and info.field_name != "server") or any(ord(ch) < 32 for ch in value):
             raise ValueError("Empty value or control character")
         return value
 
@@ -106,7 +130,12 @@ def read_profile(path: Path) -> ConnectionProfile:
     if data is None:
         raise SetupError(f"找不到連線配置：{path}")
     try:
+        raw = json.loads(data)
+        if isinstance(raw, dict) and raw.get("format_version", 1) == 1:
+            raise SetupError("舊版 v1 配置需先執行 db-semantic-mcp migrate。")
         return ConnectionProfile.model_validate_json(data)
+    except json.JSONDecodeError:
+        raise SetupError("連線配置 JSON 格式錯誤") from None
     except ValidationError as exc:
         fields = ", ".join(".".join(str(p) for p in e["loc"]) for e in exc.errors())
         raise SetupError(f"連線配置格式錯誤：{fields}") from None
@@ -128,6 +157,9 @@ def config_for_profile(
     }
     values.update(
         connection_name=profile.name,
+        database_type=profile.database_type,
+        oracle=profile.oracle,
+        sources=profile.sources,
         server=profile.server,
         database=profile.database,
         user=profile.user,
@@ -147,7 +179,7 @@ def config_for_profile(
         max_rows_affected=profile.max_rows_affected,
         query_timeout=profile.query_timeout,
     )
-    return Config(_env_file=None, **values)
+    return Config.from_fixed(**values)
 
 
 def profile_bytes(profile: ConnectionProfile) -> bytes:
@@ -228,6 +260,9 @@ def load_profile(path: Path) -> Config:
     identity = hashlib.sha256(
         json.dumps(
             {
+                "database_type": profile.database_type,
+                "oracle": profile.oracle.model_dump() if profile.oracle else None,
+                "sources": {key: value.model_dump() for key, value in profile.sources.items()},
                 "server": profile.server,
                 "port": profile.port,
                 "database": profile.database,

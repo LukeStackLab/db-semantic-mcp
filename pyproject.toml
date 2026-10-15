@@ -52,6 +52,7 @@ Issues = "https://github.com/LukeStackLab/sqlserver-semantic-mcp/issues"
 Documentation = "https://github.com/LukeStackLab/sqlserver-semantic-mcp#readme"
 
 [project.optional-dependencies]
+oracle = ["oracledb>=3.4,<27"]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",

@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-import pymssql
+import pymssql as pymssql
 
 from ..config import Config, get_config
 
@@ -43,8 +43,9 @@ def build_pymssql_kwargs(cfg: Config) -> dict[str, Any]:
 @contextmanager
 def open_connection(cfg: Config | None = None) -> Iterator[Any]:
     cfg = cfg or get_config()
-    kwargs = build_pymssql_kwargs(cfg)
-    conn = pymssql.connect(**kwargs)
+    from .backends import backend_for
+
+    conn = backend_for(cfg).connect(cfg)
     try:
         yield conn
     finally:
@@ -57,7 +58,10 @@ def fetch_all(cfg: Config, sql: str, params: tuple = ()) -> list[tuple]:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         cursor.close()
-        return rows
+        from .backends import backend_for
+
+        backend = backend_for(cfg)
+        return [tuple(backend.convert_value(v, cfg) for v in row) for row in rows]
 
 
 def fetch_one(cfg: Config, sql: str, params: tuple = ()) -> tuple | None:
@@ -66,7 +70,10 @@ def fetch_one(cfg: Config, sql: str, params: tuple = ()) -> tuple | None:
         cursor.execute(sql, params)
         row = cursor.fetchone()
         cursor.close()
-        return row
+        from .backends import backend_for
+
+        backend = backend_for(cfg)
+        return tuple(backend.convert_value(v, cfg) for v in row) if row is not None else None
 
 
 def execute(cfg: Config, sql: str, params: tuple = ()) -> int:
