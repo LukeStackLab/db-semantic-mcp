@@ -1,5 +1,4 @@
-import pytest
-from sqlserver_semantic_mcp.config import Config, get_config, reset_config
+from sqlserver_semantic_mcp.config import get_config, reset_config
 
 
 def test_config_defaults(monkeypatch):

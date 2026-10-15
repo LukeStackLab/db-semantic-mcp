@@ -1,20 +1,22 @@
-import pytest
-import aiosqlite
 from unittest.mock import MagicMock, patch
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
+import aiosqlite
+import pytest
+
 from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
-    get_table_analysis, upsert_table_analysis,
+    get_table_analysis,
+    upsert_table_analysis,
 )
+from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
 from sqlserver_semantic_mcp.infrastructure.cache.structural import (
-    compute_structural_hash,
-    compute_object_hash,
-    compute_comment_hash,
-    compute_table_hashes,
-    write_structural_snapshot,
-    read_schema_version,
     StructuralSnapshot,
+    compute_comment_hash,
+    compute_object_hash,
+    compute_structural_hash,
+    compute_table_hashes,
     fetch_snapshot_from_server,
+    read_schema_version,
+    write_structural_snapshot,
 )
 
 
@@ -44,8 +46,7 @@ def test_object_hash():
 
 
 def test_comment_hash():
-    comments = [("dbo", "Users", "", "table desc"),
-                ("dbo", "Users", "Id", "id desc")]
+    comments = [("dbo", "Users", "", "table desc"), ("dbo", "Users", "Id", "id desc")]
     h1 = compute_comment_hash(comments)
     h2 = compute_comment_hash(list(reversed(comments)))
     assert h1 == h2
@@ -83,8 +84,13 @@ async def test_write_and_read_snapshot(tmp_path):
 
 def _snap(tables, columns) -> StructuralSnapshot:
     return StructuralSnapshot(
-        tables=tables, columns=columns, primary_keys=[],
-        foreign_keys=[], indexes=[], objects=[], comments=[],
+        tables=tables,
+        columns=columns,
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=[],
+        comments=[],
     )
 
 
@@ -128,8 +134,12 @@ async def test_targeted_invalidation_only_dirties_changed_table(tmp_path):
     hashes_v1 = compute_table_hashes(snap_v1)
     for t in ("A", "B"):
         await upsert_table_analysis(
-            db_path, "testdb", "dbo", t,
-            structural_hash=hashes_v1[("dbo", t)], status="ready",
+            db_path,
+            "testdb",
+            "dbo",
+            t,
+            structural_hash=hashes_v1[("dbo", t)],
+            status="ready",
             classification={"type": "dimension", "confidence": 0.5},
         )
 
@@ -161,8 +171,12 @@ async def test_dropped_table_analysis_removed(tmp_path):
     await write_structural_snapshot(db_path, "testdb", snap_v1)
     hashes = compute_table_hashes(snap_v1)
     await upsert_table_analysis(
-        db_path, "testdb", "dbo", "Gone",
-        structural_hash=hashes[("dbo", "Gone")], status="ready",
+        db_path,
+        "testdb",
+        "dbo",
+        "Gone",
+        structural_hash=hashes[("dbo", "Gone")],
+        status="ready",
     )
 
     snap_v2 = _snap(
@@ -205,7 +219,11 @@ def test_fetch_snapshot_from_server_uses_single_connection():
 @pytest.mark.parametrize("refresh_mode", ["manual", "startup"])
 @pytest.mark.parametrize("object_type,type_code", [("VIEW", "V"), ("PROCEDURE", "P")])
 async def test_full_warmup_invalidates_changed_module_before_baseline(
-    tmp_path, monkeypatch, refresh_mode, object_type, type_code,
+    tmp_path,
+    monkeypatch,
+    refresh_mode,
+    object_type,
+    type_code,
 ):
     from sqlserver_semantic_mcp.config import Config
     from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
@@ -216,13 +234,28 @@ async def test_full_warmup_invalidates_changed_module_before_baseline(
     db_path = str(tmp_path / "full.db")
     cfg = Config.model_construct(mssql_server="fake", mssql_database="testdb", cache_path=db_path)
     await init_store(db_path)
-    snap = StructuralSnapshot(tables=[], columns=[], primary_keys=[], foreign_keys=[],
-                              indexes=[], objects=[("dbo", "module", object_type)], comments=[])
+    snap = StructuralSnapshot(
+        tables=[],
+        columns=[],
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=[("dbo", "module", object_type)],
+        comments=[],
+    )
     old = SchemaFingerprints(tables={}, objects={("dbo", "module", type_code): "old"})
     fresh = SchemaFingerprints(tables={}, objects={("dbo", "module", type_code): "new"})
     hashes = await write_structural_snapshot(db_path, "testdb", snap, fingerprints=old)
-    await upsert_object_definition(db_path, "testdb", "dbo", "module", object_type,
-                                   object_hash=hashes["object_hash"], status="ready", definition="SELECT 1")
+    await upsert_object_definition(
+        db_path,
+        "testdb",
+        "dbo",
+        "module",
+        object_type,
+        object_hash=hashes["object_hash"],
+        status="ready",
+        definition="SELECT 1",
+    )
     original_write = structural.write_fingerprints
 
     async def assert_dirty_then_advance(db, database, fps):
@@ -258,14 +291,32 @@ async def test_full_snapshot_fingerprint_invalidation_rolls_back_with_baseline(t
 
     db_path = str(tmp_path / "rollback.db")
     await init_store(db_path)
-    snap = StructuralSnapshot(tables=[("dbo", "Users")], columns=[], primary_keys=[], foreign_keys=[],
-                              indexes=[], objects=[("dbo", "module", "VIEW")], comments=[])
+    snap = StructuralSnapshot(
+        tables=[("dbo", "Users")],
+        columns=[],
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=[("dbo", "module", "VIEW")],
+        comments=[],
+    )
     old = SchemaFingerprints(tables={("dbo", "Users"): "old-table"}, objects={("dbo", "module", "V"): "old-body"})
-    fresh = SchemaFingerprints(tables={("dbo", "Users"): "new-table"}, objects={("dbo", "module", "V"): "new-body"},
-                               table_dependents={("dbo", "Users"): [("dbo", "module")]})
+    fresh = SchemaFingerprints(
+        tables={("dbo", "Users"): "new-table"},
+        objects={("dbo", "module", "V"): "new-body"},
+        table_dependents={("dbo", "Users"): [("dbo", "module")]},
+    )
     hashes = await write_structural_snapshot(db_path, "testdb", snap, fingerprints=old)
-    await upsert_object_definition(db_path, "testdb", "dbo", "module", "VIEW",
-                                   object_hash=hashes["object_hash"], status="ready", definition="SELECT 1")
+    await upsert_object_definition(
+        db_path,
+        "testdb",
+        "dbo",
+        "module",
+        "VIEW",
+        object_hash=hashes["object_hash"],
+        status="ready",
+        definition="SELECT 1",
+    )
     original_write = structural.write_fingerprints
 
     async def fail_after_baseline(db, database, fps):
@@ -292,16 +343,34 @@ async def test_full_warmup_dirties_only_changed_table_dependents(tmp_path, monke
     db_path = str(tmp_path / "dependents.db")
     cfg = Config.model_construct(mssql_server="fake", mssql_database="testdb", cache_path=db_path)
     await init_store(db_path)
-    snap = StructuralSnapshot(tables=[("dbo", "Users")], columns=[], primary_keys=[], foreign_keys=[],
-                              indexes=[], objects=[("dbo", "dependent", "VIEW"), ("dbo", "unrelated", "VIEW")], comments=[])
+    snap = StructuralSnapshot(
+        tables=[("dbo", "Users")],
+        columns=[],
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=[("dbo", "dependent", "VIEW"), ("dbo", "unrelated", "VIEW")],
+        comments=[],
+    )
     objects = {("dbo", "dependent", "V"): "same-body", ("dbo", "unrelated", "V"): "same-body"}
     old = SchemaFingerprints(tables={("dbo", "Users"): "old-table"}, objects=objects)
-    fresh = SchemaFingerprints(tables={("dbo", "Users"): "new-table"}, objects=objects,
-                               table_dependents={("dbo", "Users"): [("dbo", "dependent"), ("dbo", "dependent")]})
+    fresh = SchemaFingerprints(
+        tables={("dbo", "Users"): "new-table"},
+        objects=objects,
+        table_dependents={("dbo", "Users"): [("dbo", "dependent"), ("dbo", "dependent")]},
+    )
     hashes = await write_structural_snapshot(db_path, "testdb", snap, fingerprints=old)
     for name in ("dependent", "unrelated"):
-        await upsert_object_definition(db_path, "testdb", "dbo", name, "VIEW",
-                                       object_hash=hashes["object_hash"], status="ready", definition="SELECT 1")
+        await upsert_object_definition(
+            db_path,
+            "testdb",
+            "dbo",
+            name,
+            "VIEW",
+            object_hash=hashes["object_hash"],
+            status="ready",
+            definition="SELECT 1",
+        )
     monkeypatch.setattr(structural, "_fetch_warmup_data", lambda _cfg: (fresh, snap))
     result = await structural.warmup_structural_cache(cfg)
     assert result["objects_marked_dirty"] == 1
@@ -315,7 +384,12 @@ async def test_full_warmup_dirties_only_changed_table_dependents(tmp_path, monke
 @pytest.mark.parametrize("object_type,type_code", [("VIEW", "V"), ("PROCEDURE", "P")])
 @pytest.mark.parametrize("rollback", [False, True])
 async def test_full_warmup_invalidates_legacy_definition_missing_module_baseline(
-    tmp_path, monkeypatch, baseline_mode, object_type, type_code, rollback,
+    tmp_path,
+    monkeypatch,
+    baseline_mode,
+    object_type,
+    type_code,
+    rollback,
 ):
     from sqlserver_semantic_mcp.config import Config
     from sqlserver_semantic_mcp.infrastructure.cache import structural
@@ -326,26 +400,52 @@ async def test_full_warmup_invalidates_legacy_definition_missing_module_baseline
     db_path = str(tmp_path / "legacy.db")
     cfg = Config.model_construct(mssql_server="fake", mssql_database="testdb", cache_path=db_path)
     await init_store(db_path)
-    snap = StructuralSnapshot(tables=[("dbo", "Users")], columns=[], primary_keys=[], foreign_keys=[],
-                              indexes=[], objects=[("dbo", "module", object_type), ("dbo", "known", "VIEW")], comments=[])
-    partial = SchemaFingerprints(tables={("dbo", "Users"): "same-table"},
-                                 objects={("dbo", "known", "V"): "same-body"})
-    hashes = await write_structural_snapshot(db_path, "testdb", snap,
-                                            fingerprints=partial if baseline_mode == "partial" else None)
-    await upsert_object_definition(db_path, "testdb", "dbo", "module", object_type,
-                                   object_hash=hashes["object_hash"], status="ready", definition="SELECT 1")
+    snap = StructuralSnapshot(
+        tables=[("dbo", "Users")],
+        columns=[],
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=[("dbo", "module", object_type), ("dbo", "known", "VIEW")],
+        comments=[],
+    )
+    partial = SchemaFingerprints(tables={("dbo", "Users"): "same-table"}, objects={("dbo", "known", "V"): "same-body"})
+    hashes = await write_structural_snapshot(
+        db_path, "testdb", snap, fingerprints=partial if baseline_mode == "partial" else None
+    )
+    await upsert_object_definition(
+        db_path,
+        "testdb",
+        "dbo",
+        "module",
+        object_type,
+        object_hash=hashes["object_hash"],
+        status="ready",
+        definition="SELECT 1",
+    )
     if baseline_mode == "partial":
-        await upsert_object_definition(db_path, "testdb", "dbo", "known", "VIEW",
-                                       object_hash=hashes["object_hash"], status="ready", definition="SELECT 0")
+        await upsert_object_definition(
+            db_path,
+            "testdb",
+            "dbo",
+            "known",
+            "VIEW",
+            object_hash=hashes["object_hash"],
+            status="ready",
+            definition="SELECT 0",
+        )
     old_baseline = await read_fingerprints(db_path, "testdb")
-    fresh = SchemaFingerprints(tables=partial.tables,
-                               objects={**partial.objects, ("dbo", "module", type_code): "new-definition"})
+    fresh = SchemaFingerprints(
+        tables=partial.tables, objects={**partial.objects, ("dbo", "module", type_code): "new-definition"}
+    )
     original_write = structural.write_fingerprints
 
     async def verify_dirty_then_write(db, database, fps):
-        status = await (await db.execute(
-            "SELECT status FROM sem_object_definitions WHERE object_name='module'",
-        )).fetchone()
+        status = await (
+            await db.execute(
+                "SELECT status FROM sem_object_definitions WHERE object_name='module'",
+            )
+        ).fetchone()
         assert status == ("dirty",)
         await original_write(db, database, fps)
         if rollback:

@@ -1,4 +1,5 @@
 """Tests for SEMANTIC_MCP_TOOL_PROFILE gating (P2)."""
+
 import pytest
 
 
@@ -21,8 +22,11 @@ def test_profile_defaults_to_all_registers_every_group(base_env):
     register_all()
     # All tool groups registered
     expected = {
-        "get_tables", "describe_table",
-        "get_table_relationships", "find_join_path", "get_dependency_chain",
+        "get_tables",
+        "describe_table",
+        "get_table_relationships",
+        "find_join_path",
+        "get_dependency_chain",
         "describe_object",
         "detect_lookup_tables",
         "get_execution_policy",

@@ -1,4 +1,5 @@
 """MCP client adapters with preserving merges and explicit conflict checks."""
+
 import json
 import os
 import shutil
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import tomlkit
 
-from .files import SetupError, atomic_write, read_snapshot
+from .files import SetupError, atomic_write
 
 
 @dataclass(frozen=True)
@@ -24,17 +25,34 @@ def client_targets(home: Path | None = None, cwd: Path | None = None) -> list[Cl
     home, cwd = home or Path.home(), cwd or Path.cwd()
     codex_root = Path(os.environ.get("CODEX_HOME", str(home / ".codex")))
     targets = [
-        ClientTarget("codex", "Codex", codex_root / "config.toml", "toml",
-                     codex_root.exists() or shutil.which("codex") is not None),
-        ClientTarget("claude-code", "Claude Code（目前專案）", cwd / ".mcp.json", "json",
-                     (cwd / ".mcp.json").exists() or shutil.which("claude") is not None),
-        ClientTarget("cursor", "Cursor（全域）", home / ".cursor" / "mcp.json", "json",
-                     (home / ".cursor").exists() or shutil.which("cursor") is not None),
+        ClientTarget(
+            "codex",
+            "Codex",
+            codex_root / "config.toml",
+            "toml",
+            codex_root.exists() or shutil.which("codex") is not None,
+        ),
+        ClientTarget(
+            "claude-code",
+            "Claude Code（目前專案）",
+            cwd / ".mcp.json",
+            "json",
+            (cwd / ".mcp.json").exists() or shutil.which("claude") is not None,
+        ),
+        ClientTarget(
+            "cursor",
+            "Cursor（全域）",
+            home / ".cursor" / "mcp.json",
+            "json",
+            (home / ".cursor").exists() or shutil.which("cursor") is not None,
+        ),
     ]
     if sys.platform == "darwin":
         desktop = home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
     elif sys.platform == "win32":
-        desktop = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming"))) / "Claude" / "claude_desktop_config.json"
+        desktop = (
+            Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming"))) / "Claude" / "claude_desktop_config.json"
+        )
     else:
         desktop = None
     if desktop:
@@ -46,8 +64,7 @@ def server_entry(profile_path: Path) -> dict:
     # Do not resolve the Python symlink: that would leave a virtualenv.
     return {
         "command": os.path.abspath(sys.executable),
-        "args": ["-I", "-m", "sqlserver_semantic_mcp.main", "serve",
-                 "--config", str(profile_path.absolute())],
+        "args": ["-I", "-m", "sqlserver_semantic_mcp.main", "serve", "--config", str(profile_path.absolute())],
     }
 
 
@@ -81,13 +98,20 @@ def merge_servers(target: ClientTarget, original: bytes | None, entries: dict[st
             current["args"] = entry["args"]
         else:
             servers[name] = tomlkit.item(entry) if target.format == "toml" else entry
-    text = tomlkit.dumps(document) if target.format == "toml" else json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    text = (
+        tomlkit.dumps(document)
+        if target.format == "toml"
+        else json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    )
     return text.encode("utf-8")
 
 
 def register_servers(
-    target: ClientTarget, entries: dict[str, dict], original: bytes | None,
-    *, receipt: dict | None = None,
+    target: ClientTarget,
+    entries: dict[str, dict],
+    original: bytes | None,
+    *,
+    receipt: dict | None = None,
 ) -> Path | None:
     data = merge_servers(target, original, entries)
     return atomic_write(target.path, data, expected=original, backup=True, receipt=receipt)

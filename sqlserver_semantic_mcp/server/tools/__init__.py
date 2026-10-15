@@ -1,19 +1,25 @@
 from . import (
-    metadata, policy, query, cache,
-    relationship, object_tool, semantic, metrics, workflow,
+    cache,
+    metadata,
+    metrics,
+    object_tool,
+    policy,
+    query,
+    relationship,
+    semantic,
+    workflow,
 )  # noqa: F401
 
-
 _GROUP_REGISTRATIONS = {
-    "metadata":     metadata.register,
-    "policy":       policy.register,
-    "query":        query.register,
-    "cache":        cache.register,
+    "metadata": metadata.register,
+    "policy": policy.register,
+    "query": query.register,
+    "cache": cache.register,
     "relationship": relationship.register,
-    "object":       object_tool.register,
-    "semantic":     semantic.register,
-    "metrics":      metrics.register,
-    "workflow":     workflow.register,
+    "object": object_tool.register,
+    "semantic": semantic.register,
+    "metrics": metrics.register,
+    "workflow": workflow.register,
 }
 
 _NAMED_PROFILES = {
@@ -43,6 +49,7 @@ def _resolve_profile_groups(profile: str) -> list[str]:
 
 def register_all() -> None:
     from ...config import get_config
+
     cfg = get_config()
     groups = _resolve_profile_groups(cfg.tool_profile)
     if not cfg.workflow_tools_enabled and "workflow" in groups:

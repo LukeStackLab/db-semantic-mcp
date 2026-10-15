@@ -8,10 +8,7 @@ def register() -> None:
     register_tool(
         Tool(
             name="refresh_schema_cache",
-            description=(
-                "Re-fetch structural metadata from SQL Server and update SQLite cache. "
-                "Semantic rows whose hash changed become 'dirty' and will recompute."
-            ),
+            description="Refresh local structural schema cache from SQL Server.",
             inputSchema={"type": "object", "properties": {}},
         ),
         _refresh,

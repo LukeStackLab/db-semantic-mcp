@@ -18,13 +18,17 @@ def test_connection_check_is_read_only_and_closes_cursor(monkeypatch):
     cursor.fetchone.side_effect = [("ERP",), (5,)]
     monkeypatch.setattr(checks, "open_connection", opened)
     assert checks.check_connection(cfg) == {"database": "ERP", "visible_tables": 5}
-    assert [call.args[0] for call in cursor.execute.call_args_list] == ["SELECT DB_NAME()", "SELECT COUNT(*) FROM sys.tables"]
+    assert [call.args[0] for call in cursor.execute.call_args_list] == [
+        "SELECT DB_NAME()",
+        "SELECT COUNT(*) FROM sys.tables",
+    ]
     cursor.close.assert_called_once()
 
 
 def test_connection_error_is_redacted(monkeypatch):
     def fail(cfg):
         raise RuntimeError("password=NEVER_ECHO")
+
     monkeypatch.setattr(checks, "open_connection", fail)
     cfg = Config(_env_file=None, mssql_server="s", mssql_database="ERP")
     with pytest.raises(SetupError) as error:
@@ -36,7 +40,10 @@ def test_connection_error_is_redacted(monkeypatch):
 async def test_actual_mcp_subprocess_handshake_without_live_database(tmp_path, monkeypatch):
     monkeypatch.setenv("HANDSHAKE_TEST_PASSWORD", "unused")
     profile = ConnectionProfile(
-        name="isolated", server="example.invalid", database="ERP", user="reader",
+        name="isolated",
+        server="example.invalid",
+        database="ERP",
+        user="reader",
         credential=CredentialReference(storage="env", key="HANDSHAKE_TEST_PASSWORD"),
     )
     path = tmp_path / "isolated" / "connection.json"
@@ -45,7 +52,10 @@ async def test_actual_mcp_subprocess_handshake_without_live_database(tmp_path, m
     cfg = load_profile(path)
     await init_store(cfg.cache_path)
     await write_structural_snapshot(
-        cfg.cache_path, "ERP",
-        StructuralSnapshot(tables=[], columns=[], primary_keys=[], foreign_keys=[], indexes=[], objects=[], comments=[]),
+        cfg.cache_path,
+        "ERP",
+        StructuralSnapshot(
+            tables=[], columns=[], primary_keys=[], foreign_keys=[], indexes=[], objects=[], comments=[]
+        ),
     )
     assert await checks._handshake(path, 10) == 12

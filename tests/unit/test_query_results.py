@@ -1,4 +1,5 @@
 """Exact result-count semantics and opt-in metadata preflight."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,52 +22,82 @@ def setup_query():
         yield QueryService(policy, cfg), policy, opened, conn, cursor
 
 
-def test_summary_preserves_count_big_value(setup_query):
+def test_single_row_aggregate_is_complete_and_not_clipped(setup_query):
     query, _, _, _, cursor = setup_query
     cursor.fetchmany.return_value = [(9876543210,)]
     result = query.execute_query("SELECT COUNT_BIG(*) FROM dbo.T")
     assert result["rows"] == [[9876543210]]
-    assert result["returned_row_count"] == result["total_row_count"] == 1
-    assert result["row_count_scope"] == "fetched"
+    assert result["row_count"] == result["total_row_count"] == 1
     assert result["result_complete"] is True
-    cursor.fetchmany.assert_called_once_with(4)
+    assert result["truncated"] is False
+    cursor.fetchmany.assert_called_once_with(100)
 
 
-def test_summary_preview_is_bounded_and_total_unknown(setup_query):
-    query, _, _, _, cursor = setup_query
-    cursor.fetchmany.return_value = [(n,) for n in range(4)]
-    result = query.execute_query("SELECT * FROM dbo.T", max_rows=100)
-    assert result["rows"] == [[0], [1], [2]]
-    assert result["row_count"] == result["returned_row_count"] == 3
-    assert result["total_row_count"] is None
-    assert result["truncated"] is result["rows_omitted"] is True
-    assert result["result_complete"] is False
-    assert result["max_rows_applied"] == 100
-    assert result["fetch_limit_applied"] == 3
-
-
-@pytest.mark.parametrize("mode", ["rows", "count_only"])
-def test_bounded_count_never_claims_total(setup_query, mode):
+def test_row_limit_never_claims_total(setup_query):
     query, _, _, _, cursor = setup_query
     cursor.fetchmany.return_value = [(1,), (2,), (3,)]
-    result = query.execute_query("SELECT * FROM dbo.T", response_mode=mode, max_rows=2)
+    result = query.execute_query("SELECT * FROM dbo.T", max_rows=2)
+    assert result["rows"] == [[1], [2]]
     assert result["row_count"] == 2
-    assert result["returned_row_count"] == (2 if mode == "rows" else 0)
     assert result["total_row_count"] is None
     assert result["truncated"] is True
+    assert result["truncation_reason"] == "row_limit"
+    assert result["result_complete"] is False
 
 
-def test_count_only_small_result_has_exact_total_but_returns_no_rows(setup_query):
+def test_no_response_mode_or_budget_arguments(setup_query):
+    query, *_ = setup_query
+    for name in ("response_mode", "token_budget_hint"):
+        with pytest.raises(TypeError):
+            query.execute_query("SELECT 1", **{name: "rows"})
+
+
+def test_byte_limit_stops_before_row_limit(setup_query):
     query, _, _, _, cursor = setup_query
-    cursor.fetchmany.return_value = [(1,), (2,)]
-    result = query.execute_query("SELECT * FROM dbo.T", response_mode="count_only")
-    assert result["row_count"] == result["total_row_count"] == 2
-    assert result["returned_row_count"] == 0
-    assert "rows" not in result
+    query._cfg.max_response_bytes = 1024
+    cursor.fetchmany.return_value = [("x" * 100,)] * 50
+    result = query.execute_query("SELECT * FROM dbo.T", max_rows=1000)
+    assert 0 < result["row_count"] < 50
+    assert result["truncated"] is True
+    assert result["truncation_reason"] == "byte_limit"
+    assert "fewer columns" in result["truncation_hint"]
+    assert result["total_row_count"] is None
 
 
-def test_legacy_server_strict_cannot_be_downgraded(setup_query):
+def test_oversized_first_row_returns_no_rows_instead_of_blowing_the_cap(setup_query):
+    query, _, _, _, cursor = setup_query
+    query._cfg.max_response_bytes = 1024
+    query._cfg.max_cell_chars = 600
+    cursor.description = [("a",), ("b",), ("c",)]
+    cursor.fetchmany.return_value = [("x" * 600, "y" * 600, "z" * 600)]
+    result = query.execute_query("SELECT * FROM dbo.T")
+    assert result["rows"] == []
+    assert result["truncation_reason"] == "byte_limit"
+
+
+def test_large_text_and_binary_cells_are_capped(setup_query):
+    query, _, _, _, cursor = setup_query
+    query._cfg.max_cell_chars = 20
+    cursor.description = [("t",), ("b",)]
+    cursor.fetchmany.return_value = [("a" * 5000, b"\x00" * 5000)]
+    result = query.execute_query("SELECT * FROM dbo.T")
+    text, blob = result["rows"][0]
+    assert text.startswith("a" * 20) and "5000 chars total" in text
+    assert blob.startswith("0x") and "5000 bytes total" in blob
+    assert result["truncated"] is False
+
+
+def test_rows_are_fetched_in_bounded_chunks(setup_query):
+    query, _, _, _, cursor = setup_query
+    cursor.fetchmany.side_effect = [[(n,) for n in range(100)]] * 3 + [[(0,)] * 11]
+    result = query.execute_query("SELECT * FROM dbo.T", max_rows=310)
+    assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [100, 100, 100, 11]
+    assert result["row_count"] == 310 and result["truncated"] is True
+
+
+def test_server_strict_cannot_be_downgraded_per_call(setup_query):
     query, policy, _, conn, cursor = setup_query
+    query._cfg.strict_rows_affected_cap = True
     policy.validate.return_value["intent"]["primary_operation"] = "UPDATE"
     cursor.rowcount = 101
     result = query.execute_query("UPDATE dbo.T SET value=1 WHERE id=1", affected_rows_policy="report")
@@ -124,9 +155,10 @@ async def test_tool_runs_complete_query_lifecycle_in_one_worker(monkeypatch):
     from contextlib import contextmanager
     from threading import get_ident
     from types import SimpleNamespace
+
+    from sqlserver_semantic_mcp.server.tools import query as query_tool
     from sqlserver_semantic_mcp.services.policy_service import PolicyService
     from sqlserver_semantic_mcp.workflows.facade import WorkflowFacade
-    from sqlserver_semantic_mcp.server.tools import query as query_tool
 
     cfg = Config(_env_file=None, mssql_server="fake", mssql_database="db", mssql_user="u", mssql_password="p")
     policy = PolicyService(cfg)
@@ -162,8 +194,9 @@ async def test_tool_runs_complete_query_lifecycle_in_one_worker(monkeypatch):
             events.append(("connection_close", get_ident()))
 
     monkeypatch.setattr("sqlserver_semantic_mcp.services.query_service.open_connection", opened)
-    monkeypatch.setattr(query_tool, "get_context", lambda: SimpleNamespace(
-        cfg=cfg, workflow=WorkflowFacade(cfg, policy, service)))
+    monkeypatch.setattr(
+        query_tool, "get_context", lambda: SimpleNamespace(cfg=cfg, workflow=WorkflowFacade(cfg, policy, service))
+    )
     result = await query_tool._plan_or_execute({"query": "SELECT 1"})
     assert result["data"]["rows"] == [[1]]
     assert [name for name, _ in events] == ["connect", "cursor", "execute", "fetch", "cursor_close", "connection_close"]
@@ -224,6 +257,7 @@ def test_lost_commit_ack_is_unknown_and_must_not_be_retried(setup_query):
 @pytest.mark.parametrize("affected", [-1, 101])
 def test_failed_cap_rollback_never_claims_transaction_rolled_back(setup_query, affected):
     query, policy, _, conn, cursor = setup_query
+    query._cfg.strict_rows_affected_cap = True
     policy.validate.return_value["intent"]["primary_operation"] = "UPDATE"
     cursor.rowcount = affected
     conn.rollback.side_effect = OSError("rollback acknowledgement lost password")
@@ -241,6 +275,7 @@ def test_failed_cap_rollback_never_claims_transaction_rolled_back(setup_query, a
 
 def test_confirmed_cap_rollback_survives_connection_close_failure(setup_query):
     query, policy, opened, conn, cursor = setup_query
+    query._cfg.strict_rows_affected_cap = True
     policy.validate.return_value["intent"]["primary_operation"] = "UPDATE"
     cursor.rowcount = 101
     opened.return_value.__exit__.side_effect = OSError("close failed")
@@ -275,3 +310,24 @@ def test_write_execution_error_is_not_assumed_rolled_back(setup_query):
     assert result["automatic_retry_allowed"] is False
     assert result["next_action"] == "verify_transaction"
     conn.commit.assert_not_called()
+
+
+def test_default_reports_overshoot_and_commits(setup_query):
+    query, policy, _, conn, cursor = setup_query
+    policy.validate.return_value["intent"]["primary_operation"] = "UPDATE"
+    cursor.rowcount = 101
+    result = query.execute_query("UPDATE dbo.T SET value=1 WHERE id=1")
+    assert result["executed"] is True
+    assert result["exceeded_cap"] is True
+    assert result["transaction_state"] == "committed"
+    conn.rollback.assert_not_called()
+
+
+def test_fixed_connection_profile_stays_strict(setup_query):
+    query, policy, _, conn, cursor = setup_query
+    query._cfg.connection_name = "erp"
+    policy.validate.return_value["intent"]["primary_operation"] = "UPDATE"
+    cursor.rowcount = 101
+    result = query.execute_query("UPDATE dbo.T SET value=1 WHERE id=1", affected_rows_policy="report")
+    assert result["executed"] is False
+    conn.rollback.assert_called_once()

@@ -19,6 +19,7 @@ def environment(tmp_path, monkeypatch):
         passwords.append(password)
         monkeypatch.setenv(key, password)
         return CredentialReference(storage="env", key=key)
+
     monkeypatch.setattr(wizard, "store_password", store)
     monkeypatch.setattr(wizard, "check_connection", lambda cfg: {"visible_tables": 5})
     monkeypatch.setattr(wizard, "check_mcp", lambda path: 12)
@@ -30,9 +31,12 @@ def run(environment, answers, **kwargs):
     iterator = iter(answers)
     output = []
     status = wizard.run_setup(
-        root=root, client="cursor", client_config=client,
+        root=root,
+        client="cursor",
+        client_config=client,
         input_fn=lambda prompt: next(iterator),
-        password_fn=lambda prompt: "NEVER_ECHO_PASSWORD", emit=output.append,
+        password_fn=lambda prompt: "NEVER_ECHO_PASSWORD",
+        emit=output.append,
         **kwargs,
     )
     return status, output
@@ -54,7 +58,7 @@ def test_five_independent_profiles_and_password_redaction(environment):
     configs = [load_profile(root / f"erp{n}" / "connection.json") for n in range(5)]
     assert len({cfg.cache_path for cfg in configs}) == 5
     assert len({cfg.policy_file for cfg in configs}) == 5
-    assert all(cfg.default_token_budget_hint == "medium" for cfg in configs)
+    assert all(cfg.max_response_bytes == 65536 for cfg in configs)
     assert all(cfg.policy_profile == "readonly" for cfg in configs)
     assert len(passwords) == 5
     all_text = "\n".join(output) + client.read_text() + "".join(p.read_text() for p in root.rglob("connection.json"))
@@ -85,11 +89,26 @@ def test_connection_retry_keeps_defaults_and_does_not_repeat_permission(environm
         if len(attempts) == 1:
             raise SetupError("連線失敗")
         return {"visible_tables": 1}
+
     monkeypatch.setattr(wizard, "check_connection", check)
-    status, _ = run(environment, [
-        "erp", "bad-host", "", "ERP", "reader", "n",
-        "y", "good-host", "", "", "", "n", "",
-    ])
+    status, _ = run(
+        environment,
+        [
+            "erp",
+            "bad-host",
+            "",
+            "ERP",
+            "reader",
+            "n",
+            "y",
+            "good-host",
+            "",
+            "",
+            "",
+            "n",
+            "",
+        ],
+    )
     assert status == 0
     assert attempts == ["bad-host", "good-host"]
     assert load_profile(environment[0] / "erp" / "connection.json").mssql_server == "good-host"
@@ -98,6 +117,7 @@ def test_connection_retry_keeps_defaults_and_does_not_repeat_permission(environm
 def test_failed_handshake_does_not_register_profile(environment, monkeypatch):
     def fail(path):
         raise SetupError("MCP 握手失敗")
+
     monkeypatch.setattr(wizard, "check_mcp", fail)
     status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])
     assert status == 1
@@ -115,6 +135,7 @@ def test_failed_update_restores_existing_profile(environment, monkeypatch):
 
     def fail(path):
         raise SetupError("MCP 握手失敗")
+
     monkeypatch.setattr(wizard, "check_mcp", fail)
     status, _ = run(environment, ["erp", "y", "changed", "", "", "", "y", "n", ""])
     assert status == 1
@@ -128,6 +149,7 @@ def test_concurrent_client_change_rolls_back_profiles(environment, monkeypatch):
     def handshake(path):
         client.write_text('{"external":"change"}')
         return 12
+
     monkeypatch.setattr(wizard, "check_mcp", handshake)
     with pytest.raises(SetupError, match="其他程序"):
         run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])
@@ -138,10 +160,14 @@ def test_concurrent_client_change_rolls_back_profiles(environment, monkeypatch):
 def test_keyboard_interrupt_during_questions_writes_nothing(environment):
     def cancel(prompt):
         raise KeyboardInterrupt
+
     output = []
     status = wizard.run_setup(
-        root=environment[0], client="cursor", client_config=environment[1],
-        input_fn=cancel, emit=output.append,
+        root=environment[0],
+        client="cursor",
+        client_config=environment[1],
+        input_fn=cancel,
+        emit=output.append,
     )
     assert status == 130
     assert not environment[1].exists()
@@ -150,6 +176,7 @@ def test_keyboard_interrupt_during_questions_writes_nothing(environment):
 def test_keyring_failure_does_not_silently_write_plaintext(environment, monkeypatch):
     def fail(password):
         raise CredentialError("不可用")
+
     monkeypatch.setattr(wizard, "store_password", fail)
     status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", "", "n"])
     assert status == 1
@@ -164,12 +191,29 @@ def test_os_error_rolls_back_all_unregistered_profiles(environment, monkeypatch)
         if draft.profile.name == "second":
             raise OSError("disk full")
         return apply(draft, *args)
+
     monkeypatch.setattr(wizard, "_apply", apply_with_failure)
     with pytest.raises(OSError):
-        run(environment, [
-            "first", "sql", "", "ERP", "reader", "n", "y",
-            "second", "sql", "", "ERP", "reader", "n", "n", "",
-        ])
+        run(
+            environment,
+            [
+                "first",
+                "sql",
+                "",
+                "ERP",
+                "reader",
+                "n",
+                "y",
+                "second",
+                "sql",
+                "",
+                "ERP",
+                "reader",
+                "n",
+                "n",
+                "",
+            ],
+        )
     assert not environment[1].exists()
     assert not (environment[0] / "first" / "connection.json").exists()
     assert not (environment[0] / "first" / "policy.json").exists()
@@ -193,12 +237,29 @@ def test_post_handshake_edit_is_not_registered_and_other_files_are_restored(envi
         if path.parent.name == "second":
             (environment[0] / "first" / "connection.json").write_text("external-change")
         return 12
+
     monkeypatch.setattr(wizard, "check_mcp", handshake)
     with pytest.raises(SetupError, match="驗證後"):
-        run(environment, [
-            "first", "sql", "", "ERP", "reader", "n", "y",
-            "second", "sql", "", "ERP", "reader", "n", "n", "",
-        ])
+        run(
+            environment,
+            [
+                "first",
+                "sql",
+                "",
+                "ERP",
+                "reader",
+                "n",
+                "y",
+                "second",
+                "sql",
+                "",
+                "ERP",
+                "reader",
+                "n",
+                "n",
+                "",
+            ],
+        )
     assert not environment[1].exists()
     assert (environment[0] / "first" / "connection.json").read_text() == "external-change"
     assert not (environment[0] / "first" / "policy.json").exists()
@@ -222,6 +283,7 @@ def test_explicit_permission_change_enables_only_limited_writes(environment):
     assert run(environment, ["erp", "y", "", "", "", "", "y", "n", ""])[0] == 0
     cfg = load_profile(environment[0] / "erp" / "connection.json")
     from sqlserver_semantic_mcp.services.policy_service import PolicyService
+
     policy = PolicyService(cfg).current_policy()
     assert policy.operations.insert is True
     assert policy.operations.update is True
@@ -231,10 +293,12 @@ def test_explicit_permission_change_enables_only_limited_writes(environment):
 
 def test_stale_draft_does_not_delete_another_installers_identical_policy(environment):
     from sqlserver_semantic_mcp.profiles import ConnectionProfile
+
     directory = environment[0] / "erp"
     stale = wizard.Draft(
         ConnectionProfile(name="erp", server="sql", database="ERP", user="reader"),
-        "unused", directory,
+        "unused",
+        directory,
         {directory / name: None for name in ("connection.json", "policy.json", "credentials.json")},
     )
     assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])[0] == 0
@@ -251,14 +315,17 @@ def test_interrupt_after_replace_restores_the_owned_file(environment, monkeypatc
     before = {p: p.read_bytes() for p in directory.glob("*.json")}
     client_before = environment[1].read_bytes()
     from sqlserver_semantic_mcp.setup import files
+
     real_replace = files.os.replace
     interrupted = False
+
     def interrupt_once(source, target):
         nonlocal interrupted
         real_replace(source, target)
         if target.name == "policy.json" and not interrupted:
             interrupted = True
             raise KeyboardInterrupt
+
     monkeypatch.setattr(files.os, "replace", interrupt_once)
     assert run(environment, ["erp", "y", "", "", "", "", "y", "n", ""])[0] == 130
     assert environment[1].read_bytes() == client_before
@@ -269,8 +336,10 @@ def test_interrupt_after_replace_restores_the_owned_file(environment, monkeypatc
 @pytest.mark.skipif(wizard.os.name == "nt", reason="POSIX credential-file fallback")
 def test_finalize_preserves_newer_configuration_and_identical_credentials(environment, monkeypatch):
     store = wizard.store_password
+
     def unavailable(password):
         raise CredentialError("keyring unavailable")
+
     monkeypatch.setattr(wizard, "store_password", unavailable)
     assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", "", "y"])[0] == 0
     directory = environment[0] / "erp"
@@ -278,14 +347,17 @@ def test_finalize_preserves_newer_configuration_and_identical_credentials(enviro
     secret_bytes = (directory / "credentials.json").read_bytes()
     monkeypatch.setattr(wizard, "store_password", store)
     real_register = wizard.register_servers
+
     def register_then_concurrent_update(*args, **kwargs):
         backup = real_register(*args, **kwargs)
         from sqlserver_semantic_mcp.setup.files import atomic_write
+
         atomic_write(directory / "credentials.json", secret_bytes)
         updated = json.loads((directory / "connection.json").read_text())
         updated["credential"] = old_credential
         atomic_write(directory / "connection.json", json.dumps(updated).encode())
         return backup
+
     monkeypatch.setattr(wizard, "register_servers", register_then_concurrent_update)
     assert run(environment, ["erp", "y", "", "", "", "", "n", "n", ""])[0] == 0
     assert (directory / "credentials.json").read_bytes() == secret_bytes

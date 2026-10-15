@@ -1,4 +1,5 @@
 """Tests for the join-summary heuristic folded into describe_table (P3)."""
+
 import pytest
 
 
@@ -11,6 +12,7 @@ def cache(tmp_path, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
     from sqlserver_semantic_mcp.config import reset_config
+
     reset_config()
     return str(tmp_path / "t.db")
 
@@ -18,14 +20,15 @@ def cache(tmp_path, monkeypatch):
 async def _seed(cache_path: str):
     from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
     from sqlserver_semantic_mcp.infrastructure.cache.structural import (
-        write_structural_snapshot, StructuralSnapshot,
+        StructuralSnapshot,
+        write_structural_snapshot,
     )
+
     await init_store(cache_path)
     # dbo.Orders (Id PK, UserId FK→Users.Id, ProductId FK→Product.Id,
     #             Status int, CreatedAt datetime, DeletedAt datetime)
     snap = StructuralSnapshot(
-        tables=[("dbo", "Orders"), ("dbo", "Users"), ("dbo", "Product"),
-                ("dbo", "Empty")],
+        tables=[("dbo", "Orders"), ("dbo", "Users"), ("dbo", "Product"), ("dbo", "Empty")],
         columns=[
             ("dbo", "Orders", "Id", "int", 4, 0, None, 1),
             ("dbo", "Orders", "UserId", "int", 4, 0, None, 2),
@@ -40,7 +43,9 @@ async def _seed(cache_path: str):
             ("dbo", "Orders", "UserId", "dbo", "Users", "Id"),
             ("dbo", "Orders", "ProductId", "dbo", "Product", "Id"),
         ],
-        indexes=[], objects=[], comments=[],
+        indexes=[],
+        objects=[],
+        comments=[],
     )
     await write_structural_snapshot(cache_path, "testdb", snap)
 
@@ -51,7 +56,10 @@ async def test_summarize_for_joining_shape(cache):
     from sqlserver_semantic_mcp.services import semantic_service
 
     result = await semantic_service.summarize_for_joining(
-        cache, "testdb", "dbo", "Orders",
+        cache,
+        "testdb",
+        "dbo",
+        "Orders",
     )
     assert result["table"] == "dbo.Orders"
     assert result["pk"] == ["Id"]
@@ -69,7 +77,10 @@ async def test_summarize_for_joining_table_with_no_fks(cache):
     from sqlserver_semantic_mcp.services import semantic_service
 
     result = await semantic_service.summarize_for_joining(
-        cache, "testdb", "dbo", "Empty",
+        cache,
+        "testdb",
+        "dbo",
+        "Empty",
     )
     assert result["table"] == "dbo.Empty"
     assert result["join_candidates"] == []
@@ -81,6 +92,9 @@ async def test_summarize_for_joining_nonexistent_table(cache):
     from sqlserver_semantic_mcp.services import semantic_service
 
     result = await semantic_service.summarize_for_joining(
-        cache, "testdb", "dbo", "Missing",
+        cache,
+        "testdb",
+        "dbo",
+        "Missing",
     )
     assert result is None

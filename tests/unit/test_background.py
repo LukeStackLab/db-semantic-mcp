@@ -1,14 +1,20 @@
+from datetime import UTC
+
 import pytest
-from sqlserver_semantic_mcp.config import reset_config, get_config
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
-    write_structural_snapshot, StructuralSnapshot,
-)
-from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
-    enqueue_all_tables, list_pending_table_analyses, get_table_analysis,
-)
+
+from sqlserver_semantic_mcp.config import get_config, reset_config
 from sqlserver_semantic_mcp.infrastructure.background import (
     run_background_fill_once,
+)
+from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
+    enqueue_all_tables,
+    get_table_analysis,
+    list_pending_table_analyses,
+)
+from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
+from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    StructuralSnapshot,
+    write_structural_snapshot,
 )
 
 
@@ -33,7 +39,9 @@ async def test_background_processes_pending(tmp_path, monkeypatch):
         ],
         primary_keys=[("dbo", "Users", "Id"), ("dbo", "Orders", "Id")],
         foreign_keys=[],
-        indexes=[], objects=[], comments=[],
+        indexes=[],
+        objects=[],
+        comments=[],
     )
     await write_structural_snapshot(cfg.cache_path, "testdb", snap)
     await enqueue_all_tables(cfg.cache_path, "testdb")
@@ -51,18 +59,36 @@ async def test_background_processes_pending(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_failed_item_retry_does_not_starve_unattempted_tables(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
     import aiosqlite
-    from datetime import datetime, timedelta, timezone
+
     from sqlserver_semantic_mcp.config import Config
     from sqlserver_semantic_mcp.infrastructure import background
 
-    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="db", mssql_user="u", mssql_password="p",
-                 cache_path=str(tmp_path / "retry.db"), background_batch_size=1)
+    cfg = Config(
+        _env_file=None,
+        mssql_server="fake",
+        mssql_database="db",
+        mssql_user="u",
+        mssql_password="p",
+        cache_path=str(tmp_path / "retry.db"),
+        background_batch_size=1,
+    )
     await init_store(cfg.cache_path)
-    await write_structural_snapshot(cfg.cache_path, "db", StructuralSnapshot(
-        tables=[("dbo", "A"), ("dbo", "B"), ("dbo", "C")], columns=[], primary_keys=[],
-        foreign_keys=[], indexes=[], objects=[], comments=[],
-    ))
+    await write_structural_snapshot(
+        cfg.cache_path,
+        "db",
+        StructuralSnapshot(
+            tables=[("dbo", "A"), ("dbo", "B"), ("dbo", "C")],
+            columns=[],
+            primary_keys=[],
+            foreign_keys=[],
+            indexes=[],
+            objects=[],
+            comments=[],
+        ),
+    )
     await enqueue_all_tables(cfg.cache_path, "db")
     original = background.semantic_service.classify_table
     visited = []
@@ -80,8 +106,10 @@ async def test_failed_item_retry_does_not_starve_unattempted_tables(tmp_path, mo
     assert failure["attempt_count"] == 1
     assert failure["next_retry_at"] > failure["last_attempt_at"]
     async with aiosqlite.connect(cfg.cache_path) as db:
-        await db.execute("UPDATE sem_table_analysis SET next_retry_at=? WHERE table_name='A'",
-                         ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),))
+        await db.execute(
+            "UPDATE sem_table_analysis SET next_retry_at=? WHERE table_name='A'",
+            ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(),),
+        )
         await db.commit()
     await run_background_fill_once(cfg)
     await run_background_fill_once(cfg)
@@ -94,8 +122,10 @@ async def test_failed_item_retry_does_not_starve_unattempted_tables(tmp_path, mo
     assert retry.total_seconds() == 2
     monkeypatch.setattr(background.semantic_service, "classify_table", original)
     async with aiosqlite.connect(cfg.cache_path) as db:
-        await db.execute("UPDATE sem_table_analysis SET next_retry_at=? WHERE table_name='A'",
-                         ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),))
+        await db.execute(
+            "UPDATE sem_table_analysis SET next_retry_at=? WHERE table_name='A'",
+            ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(),),
+        )
         await db.commit()
     await run_background_fill_once(cfg)
     recovered = await get_table_analysis(cfg.cache_path, "db", "dbo", "A")

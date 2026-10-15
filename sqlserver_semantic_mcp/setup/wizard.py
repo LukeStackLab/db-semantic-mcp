@@ -1,4 +1,5 @@
 """Traditional Chinese terminal wizard for independent MCP servers."""
+
 import getpass
 import os
 import sys
@@ -9,20 +10,37 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from ..credentials import (
-    CredentialError, CredentialReference, delete_password, read_password,
-    private_password_bytes, store_password, store_private_password,
+    CredentialError,
+    CredentialReference,
+    delete_password,
+    private_password_bytes,
+    read_password,
+    store_password,
+    store_private_password,
 )
 from ..profiles import (
-    ConnectionProfile, config_for_profile, default_config_root, policy_bytes,
-    profile_bytes, read_profile,
+    ConnectionProfile,
+    config_for_profile,
+    default_config_root,
+    policy_bytes,
+    profile_bytes,
+    read_profile,
 )
 from .checks import check_connection, check_mcp
 from .clients import (
-    ClientTarget, client_targets, merge_servers, parse_client,
-    register_servers, server_entry,
+    ClientTarget,
+    client_targets,
+    merge_servers,
+    parse_client,
+    register_servers,
+    server_entry,
 )
 from .files import (
-    SetupError, _write_lock, atomic_write, read_snapshot, restore_owned,
+    SetupError,
+    _write_lock,
+    atomic_write,
+    read_snapshot,
+    restore_owned,
     snapshot_with_identity,
 )
 
@@ -151,13 +169,19 @@ def _gather_connection(name, previous, directory, input_fn, password_fn, *, read
         password = password_fn("密碼不得為空，請重新輸入：")
     if readonly is None:
         readonly = not _confirm(
-            input_fn, "允許新增與修改資料？",
+            input_fn,
+            "允許新增與修改資料？",
             default=previous is not None and not previous.readonly,
         )
     fields = previous.model_dump() if previous else {}
     fields.update(
-        name=name, server=server, port=port, database=database,
-        user=user, readonly=readonly, credential=None,
+        name=name,
+        server=server,
+        port=port,
+        database=database,
+        user=user,
+        readonly=readonly,
+        credential=None,
     )
     return ConnectionProfile.model_validate(fields), password
 
@@ -187,15 +211,17 @@ def _apply(draft: Draft, input_fn, emit) -> Applied:
                 raise
             emit("系統憑證庫無法使用。本機憑證檔會以明碼保存，目錄權限 0700、檔案權限 0600。")
             if not _confirm(input_fn, "改用僅限目前使用者讀取的本機憑證檔？"):
-                raise SetupError("未保存密碼，這組配置未套用。")
+                raise SetupError("未保存密碼，這組配置未套用。") from None
             credential_path = directory / "credentials.json"
             if read_snapshot(credential_path) != draft.original[credential_path]:
-                raise SetupError("憑證檔已被其他程序修改，未套用。")
+                raise SetupError("憑證檔已被其他程序修改，未套用。") from None
             written[credential_path] = private_password_bytes(draft.password)
             receipts[credential_path] = {}
             reference = CredentialReference(storage="file", key="credentials.json")
             store_private_password(
-                directory, draft.password, expected=draft.original[credential_path],
+                directory,
+                draft.password,
+                expected=draft.original[credential_path],
                 receipt=receipts[credential_path],
             )
         profile = draft.profile.model_copy(update={"credential": reference})
@@ -226,11 +252,7 @@ def _rollback(items: list[Applied], emit) -> None:
             emit(f"  {path}")
 
 
-def run_setup(
-    *, root: Path | None = None, client: str | None = None,
-    client_config: Path | None = None, input_fn=None, password_fn=None, emit=print,
-    tool_profile: str | None = None,
-) -> int:
+def _prepare_setup(root, input_fn, password_fn, tool_profile):
     interactive = input_fn is None
     if interactive and not sys.stdin.isatty():
         raise SetupError("setup 需要互動式終端機。請直接在終端機執行此指令。")
@@ -241,6 +263,135 @@ def run_setup(
         ConnectionProfile(name="validation", server="x", database="x", user="x", tool_profile=tool_profile)
     if root.is_symlink():
         raise SetupError("配置根目錄不得為符號連結。")
+    return input_fn, password_fn, root
+
+
+def _ask_connection_name(root, target, original_client, drafts, input_fn, emit):
+    while True:
+        name = _ask(input_fn, "MCP 名稱")
+        try:
+            ConnectionProfile(name=name, server="x", database="x", user="x")
+        except ValidationError:
+            emit("名稱須為 1–64 個英文字母、數字、底線或連字號，且不能是保留檔名。")
+            continue
+        if name.casefold() in {d.profile.name.casefold() for d in drafts}:
+            emit("這次已設定相同名稱，請使用不同名稱。")
+            continue
+        directory = root / name
+        path = directory / "connection.json"
+        try:
+            if root.exists() and any(
+                child.name.casefold() == name.casefold() and child.name != name for child in root.iterdir()
+            ):
+                raise SetupError("名稱大小寫與既有配置衝突，請使用既有名稱。")
+            merge_servers(target, original_client, {name: server_entry(path)})
+            previous = read_profile(path) if read_snapshot(path) is not None else None
+            if previous and previous.name != name:
+                raise SetupError("既有配置名稱與目錄不一致，請先修正或使用新名稱。")
+        except SetupError as exc:
+            emit(str(exc))
+            continue
+        if previous and not _confirm(input_fn, f"更新既有配置 {name}？"):
+            continue
+        return directory, path, previous
+
+
+def _collect_connection(name, previous, directory, input_fn, password_fn, emit, tool_profile):
+    profile, password = _gather_connection(name, previous, directory, input_fn, password_fn)
+    if tool_profile is not None:
+        profile = profile.model_copy(update={"tool_profile": tool_profile})
+    while True:
+        emit("正在測試登入與 metadata 存取……")
+        try:
+            result = check_connection(config_for_profile(profile, directory, password))
+            emit(f"連線成功，可見 {result['visible_tables']} 張資料表。")
+            return profile, password
+        except SetupError as exc:
+            emit(str(exc))
+            if not _confirm(input_fn, "重新輸入這組連線資訊？", default=True):
+                return None, None
+            profile, password = _gather_connection(
+                name,
+                profile,
+                directory,
+                input_fn,
+                password_fn,
+                readonly=profile.readonly,
+            )
+
+
+def _apply_drafts(drafts, input_fn, emit, applied) -> int:
+    failed = 0
+    for draft in drafts:
+        try:
+            applied.append(_apply(draft, input_fn, emit))
+        except SetupError as exc:
+            failed += 1
+            emit(f"{draft.profile.name} 未套用：{exc}")
+    return failed
+
+
+def _collect_drafts(root, target, original_client, input_fn, password_fn, emit, tool_profile) -> list[Draft]:
+    drafts: list[Draft] = []
+    while True:
+        directory, path, previous = _ask_connection_name(
+            root,
+            target,
+            original_client,
+            drafts,
+            input_fn,
+            emit,
+        )
+        name = directory.name
+        snapshots = {
+            directory / filename: snapshot_with_identity(directory / filename)
+            for filename in ("connection.json", "policy.json", "credentials.json")
+        }
+        original = {path: snapshot[0] for path, snapshot in snapshots.items()}
+        original_identities = {path: snapshot[1] for path, snapshot in snapshots.items()}
+        profile, password = _collect_connection(
+            name,
+            previous,
+            directory,
+            input_fn,
+            password_fn,
+            emit,
+            tool_profile,
+        )
+        if profile is not None:
+            emit(f"{name}：{'唯讀' if profile.readonly else '受限寫入'}，輸出上限 {profile.max_response_bytes} bytes。")
+            drafts.append(Draft(profile, password, directory, original, previous, original_identities))
+        if not _confirm(input_fn, "再新增一組連線？"):
+            break
+    return drafts
+
+
+def _register_with_client(target, original_client, applied: list[Applied], emit) -> str | None:
+    for item in applied:
+        item.verify()
+    entries = {a.draft.profile.name: server_entry(a.draft.directory / "connection.json") for a in applied}
+    merged_client = merge_servers(target, original_client, entries)
+    client_receipt = {}
+    try:
+        return register_servers(target, entries, original_client, receipt=client_receipt)
+    except BaseException:
+        restore_owned(target.path, original_client, merged_client, client_receipt.get("identity"))
+        _rollback(applied, emit)
+        applied.clear()
+        raise
+
+
+def run_setup(
+    *,
+    root: Path | None = None,
+    client: str | None = None,
+    client_config: Path | None = None,
+    input_fn=None,
+    password_fn=None,
+    emit=print,
+    tool_profile: str | None = None,
+) -> int:
+    input_fn, password_fn, root = _prepare_setup(root, input_fn, password_fn, tool_profile)
     applied: list[Applied] = []
     registered = False
     try:
@@ -248,101 +399,23 @@ def run_setup(
         target = _select_client(client, client_config, input_fn, emit)
         original_client = read_snapshot(target.path)
         parse_client(target, original_client)
-        drafts: list[Draft] = []
-        while True:
-            while True:
-                name = _ask(input_fn, "MCP 名稱")
-                try:
-                    ConnectionProfile(name=name, server="x", database="x", user="x")
-                except ValidationError:
-                    emit("名稱須為 1–64 個英文字母、數字、底線或連字號，且不能是保留檔名。")
-                    continue
-                if name.casefold() in {d.profile.name.casefold() for d in drafts}:
-                    emit("這次已設定相同名稱，請使用不同名稱。")
-                    continue
-                directory = root / name
-                path = directory / "connection.json"
-                try:
-                    if root.exists() and any(
-                        child.name.casefold() == name.casefold() and child.name != name
-                        for child in root.iterdir()
-                    ):
-                        raise SetupError("名稱大小寫與既有配置衝突，請使用既有名稱。")
-                    merge_servers(target, original_client, {name: server_entry(path)})
-                    previous = read_profile(path) if read_snapshot(path) is not None else None
-                    if previous and previous.name != name:
-                        raise SetupError("既有配置名稱與目錄不一致，請先修正或使用新名稱。")
-                except SetupError as exc:
-                    emit(str(exc))
-                    continue
-                if previous and not _confirm(input_fn, f"更新既有配置 {name}？"):
-                    continue
-                break
-            snapshots = {
-                directory / filename: snapshot_with_identity(directory / filename)
-                for filename in ("connection.json", "policy.json", "credentials.json")
-            }
-            original = {path: snapshot[0] for path, snapshot in snapshots.items()}
-            original_identities = {path: snapshot[1] for path, snapshot in snapshots.items()}
-            profile, password = _gather_connection(
-                name, previous, directory, input_fn, password_fn,
-            )
-            if tool_profile is not None:
-                profile = profile.model_copy(update={"tool_profile": tool_profile})
-            while True:
-                emit("正在測試登入與 metadata 存取……")
-                try:
-                    result = check_connection(config_for_profile(profile, directory, password))
-                    emit(f"連線成功，可見 {result['visible_tables']} 張資料表。")
-                    break
-                except SetupError as exc:
-                    emit(str(exc))
-                    if not _confirm(input_fn, "重新輸入這組連線資訊？", default=True):
-                        profile = None
-                        break
-                    profile, password = _gather_connection(
-                        name, profile, directory, input_fn, password_fn,
-                        readonly=profile.readonly,
-                    )
-            if profile is not None:
-                emit(f"{name}：{'唯讀' if profile.readonly else '受限寫入'}，預算 {profile.budget}。")
-                drafts.append(Draft(profile, password, directory, original, previous, original_identities))
-            if not _confirm(input_fn, "再新增一組連線？"):
-                break
+        drafts = _collect_drafts(root, target, original_client, input_fn, password_fn, emit, tool_profile)
         if not drafts:
             emit("沒有可套用的配置。")
             return 1
         emit("準備建立或更新以下獨立 MCP：")
         for draft in drafts:
             p = draft.profile
-            emit(f"  {p.name}: {p.server}:{p.port}/{p.database}；{'唯讀' if p.readonly else '受限寫入'}；{p.budget}")
+            emit(
+                f"  {p.name}: {p.server}:{p.port}/{p.database}；{'唯讀' if p.readonly else '受限寫入'}；{p.max_response_bytes} bytes"
+            )
         if not _confirm(input_fn, f"套用至 {target.label}？", default=True):
             emit("已取消，未修改配置與 Client 設定。")
             return 0
-        failed = 0
-        for draft in drafts:
-            try:
-                applied.append(_apply(draft, input_fn, emit))
-            except SetupError as exc:
-                failed += 1
-                emit(f"{draft.profile.name} 未套用：{exc}")
+        failed = _apply_drafts(drafts, input_fn, emit, applied)
         if not applied:
             return 1
-        for item in applied:
-            item.verify()
-        entries = {
-            a.draft.profile.name: server_entry(a.draft.directory / "connection.json")
-            for a in applied
-        }
-        merged_client = merge_servers(target, original_client, entries)
-        client_receipt = {}
-        try:
-            backup = register_servers(target, entries, original_client, receipt=client_receipt)
-        except BaseException:
-            restore_owned(target.path, original_client, merged_client, client_receipt.get("identity"))
-            _rollback(applied, emit)
-            applied.clear()
-            raise
+        backup = _register_with_client(target, original_client, applied, emit)
         registered = True
         for item in applied:
             item.finalize()

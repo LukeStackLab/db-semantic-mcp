@@ -21,7 +21,7 @@ Supports **Codex · Claude Code · Claude Desktop · Cursor**
 
 | Explore databases | Keep responses compact | Isolate connections |
 |:---|:---|:---|
-| Discover schema relationships and cache metadata and semantic analysis. | Start with summaries; request columns, indexes or samples when needed. | Each process has its own account, permissions, budget and cache. Read-only by default. |
+| Discover schema relationships and cache metadata and semantic analysis. | Get full columns, indexes and query results directly; oversized output is cut and flagged. | Each process has its own account, permissions, output limits and cache. Read-only by default. |
 
 ---
 
@@ -77,15 +77,15 @@ The terminal prompts are currently in Traditional Chinese.
 
 ## Multiple connections
 
-Give each connection a different name. Create all five below in one wizard session, or run `setup` again later. Every new profile defaults to the `medium` response budget.
+Give each connection a different name. Create all five below in one wizard session, or run `setup` again later. Each profile can tune its output cap (`max_response_bytes`) in `connection.json`.
 
-| MCP name | Example use | Permissions | Response budget |
-|:---|:---|:---|:---|
-| `erp_prod` | Production ERP | Read-only | `medium` |
-| `erp_test` | Test ERP | Limited writes | `medium` |
-| `reporting` | Reporting database | Read-only | `medium` |
-| `crm` | Customer database | Read-only | `medium` |
-| `warehouse` | Warehouse database | Read-only | `medium` |
+| MCP name | Example use | Permissions |
+|:---|:---|:---|
+| `erp_prod` | Production ERP | Read-only |
+| `erp_test` | Test ERP | Limited writes |
+| `reporting` | Reporting database | Read-only |
+| `crm` | Customer database | Read-only |
+| `warehouse` | Warehouse database | Read-only |
 
 Name the MCP server in your AI conversation:
 
@@ -106,22 +106,38 @@ Only decide whether limited writes are needed:
 | Read-only, default | `SELECT` |
 | Limited writes | `SELECT`, one `INSERT ... VALUES`, or one `UPDATE` with `WHERE` |
 
-Limited writes exclude `DELETE`, DDL, `EXEC`, write subqueries, CTEs and `OUTPUT`. New profiles default to 1,000 returned rows, 100 affected rows and a 30-second query timeout. Writes exceeding the affected-row cap are rolled back.
+Limited writes exclude `DELETE`, DDL, `EXEC`, write subqueries, CTEs and `OUTPUT`. New profiles default to 1,000 returned rows, 100 affected rows and a 30-second query timeout. Writes from these fixed connection profiles are rolled back when they exceed the affected-row cap.
 
 MCP policies do not grant SQL Server permissions. Use a dedicated account for each purpose and enforce read-only access in the database for production connections. The wizard checks login and metadata access; it does not perform writes to test permissions.
 
-### Response budget
+### Output limits
 
-**Keep it at `medium`.** By default, `get_tables` lists up to 500 tables, and query `sample` mode returns up to 50 sample rows. These are item limits, not fixed token or monetary caps.
+`response_mode`, `return_mode`, `detail` and `token_budget_hint` have been removed. Existing `connection.json` files can still contain `budget`, but it is ignored; use the output limits below. There are no summary/sample response modes and no detail tiers. `plan_or_execute_query` returns columns and rows for executed SELECT statements, bounded by three hard limits; the first one reached wins:
 
-To reduce AI usage, ask the agent to find relevant tables before requesting detailed columns. Start queries with summaries or samples. Use `tool_metrics` to inspect response sizes in bytes; actual fees depend on your client, model and usage. Enabling more MCP servers may add tool descriptions to the context, so enable only the connections you need in the client.
+| Limit | Default | Setting |
+|:---|:---|:---|
+| Rows | 1000 | `max_rows_returned`; lower per call with `max_rows` |
+| Serialized column names and rows | 65536 | `max_response_bytes` |
+| Characters per cell | 2000 | `max_cell_chars` (binary is truncated as hex) |
+
+`max_response_bytes` counts the JSON size of column names and retained rows. It excludes response envelope fields such as validation and cache metadata.
+
+When a result is cut, the response carries `truncated=true` and `truncation_reason` (`row_limit` or `byte_limit`), and `total_row_count` is null. Narrow it with fewer columns, `WHERE`/`TOP`, or an aggregate. `get_tables` lists up to 500 tables (`limit` overrides).
+
+These are hard output-size limits, not token or monetary caps; actual fees depend on your client, model and usage. Use `tool_metrics` to inspect response sizes in bytes. Enabling more MCP servers may add tool descriptions to the context, so enable only the connections you need.
 
 <details>
 <summary><b>Query results, joins and tool profiles</b></summary>
 
-`summary` fetches up to 4 rows and returns the first 3, preserving scalar aggregates. `sample` fetches its budget-derived sample plus one row to detect truncation. `row_count` is the observed retained count; `returned_row_count` counts rows actually included in the payload. `total_row_count` is exact only when the result set is exhausted, otherwise null. `truncated` indicates omitted results. Request COUNT_BIG explicitly for an exact full count.
+`row_count` is the retained count. `total_row_count` is exact only when the result set is exhausted, otherwise null. `truncated` indicates omitted results. Request COUNT_BIG explicitly for an exact full count.
 
-Use `describe_table(detail="standard", columns=["Id", "Amount"])` for selected columns with exact SQL types, complete join constraints, and required join-column metadata. Compound FKs include every column_pair. Parallel FK roles produce bounded candidates and ambiguity. Scores are heuristics; cardinality is unknown without valid uniqueness evidence. Full detail retains XML/spatial index metadata while cardinality inference still requires valid unique-key evidence. Classification consistently uses scope-visible FKs; restricted classifications are not shared across scopes. Discovery searches local names, column names, descriptions and Traditional Chinese aliases without external models. Qualified exact table names rank ahead of ordinary text matches. Customize `discovery_aliases` in connection.json.
+`describe_table` always returns full columns, keys, indexes and descriptions; pass `columns=["Id", "Amount"]` to select columns with exact SQL types, complete join constraints, and required join-column metadata. Compound FKs include every column_pair. Parallel FK roles produce bounded candidates and ambiguity. Scores are heuristics; cardinality is unknown without valid uniqueness evidence. Index metadata includes XML/spatial indexes while cardinality inference still requires valid unique-key evidence. Classification consistently uses scope-visible FKs; restricted classifications are not shared across scopes. Discovery searches local names, column names, descriptions and Traditional Chinese aliases without external models. Qualified exact table names rank ahead of ordinary text matches. Customize `discovery_aliases` in connection.json.
+
+A denied statement carries `denial`: `layer` (`policy`, `keyword_guard` or `fixed_profile`), `rule`, `message` and `hint`; keyword-guard denials also list `matches` with keyword, line and column. Fix the SQL from `rule` and `hint` instead of guessing.
+
+A single `SELECT` may be preceded by scalar `DECLARE @v type [= expr]` and `SET @v = expr`. Initializers cannot read objects (subqueries, tables, user functions); table variables and options such as `SET NOCOUNT` are refused. `SELECT INTO`, temp tables, `EXEC` and multiple result sets remain unsupported.
+
+When a write exceeds `max_rows_affected`, fixed connection profiles (wizard-created `connection.json`) always roll back. Configurations from environment variables or a policy file only report `exceeded_cap` by default; set `SEMANTIC_MCP_STRICT_ROWS_AFFECTED_CAP=true` or pass `affected_rows_policy="strict"` to roll back.
 
 `plan_or_execute_query(validate_result_schema=true)` optionally describes SQL Server result metadata before execution. It adds a DB round trip, has limitations such as temporary tables, and does not prove business correctness. It is off by default.
 
@@ -143,7 +159,7 @@ Existing profiles can set tool_profile in connection.json and restart. Omitting 
 <details>
 <summary><b>Authorization, cache and compatibility</b></summary>
 
-Authorization always uses strict TSQL AST analysis, including when legacy routing uses regex. It checks every statement and physical reference. Unsupported/remote/dynamic sources, transaction control and SELECT INTO fail closed. FOR SYSTEM_TIME and external DDL remain unsupported until their physical history tables or external sources can be resolved and authorized. Execution accepts one statement; validation can inspect a policy-approved batch. Explicit invalid/missing legacy policy files and unknown policy fields now stop startup. A caller's report option cannot lower a server strict affected-row cap.
+Authorization always uses strict TSQL AST analysis, including when routing uses regex. It checks every statement and physical reference. Unsupported/remote/dynamic sources, transaction control and SELECT INTO fail closed. FOR SYSTEM_TIME and external DDL remain unsupported until their physical history tables or external sources can be resolved and authorized. Execution accepts one statement; validation can inspect a policy-approved batch. Explicit invalid/missing policy files and unknown policy fields now stop startup. A caller's report option cannot lower a server strict affected-row cap.
 
 SQL, metadata, resources, FKs and object dependencies share scope. allowed_tables supports bare, schema-qualified and database-qualified TSQL identifiers. Allow comparisons retain case for case-sensitive databases; deny comparisons also reject case variants. Restricted scopes conservatively reject metadata functions that may read other objects, including FileTableRootPath and STATS_DATE. Dedicated SQL accounts remain the final enforcement boundary. Confirmed commits remain successful even if cleanup fails. An uncertain commit/rollback returns transaction_state="unknown" and automatic_retry_allowed=false: executed=false does not prove rollback, so verify the DB outcome before retrying. Unverifiable or restricted definitions are withheld with explicit omission flags.
 
@@ -151,7 +167,7 @@ Old SQLite stores migrate automatically. Legacy FK rows without constraint ident
 
 Each process defaults to 4 DB workers. Cancelling a waiter does not interrupt the synchronous driver: capacity remains occupied until cleanup finishes. Configure db_worker_limit and schema_cache_ttl_s in connection.json. tool_metrics includes bytes, latency percentiles, worker wait, DB lifecycle duration, fetched rows, observed cache hits and failure categories without storing SQL, rows or passwords. DB lifecycle duration includes connection/fetch time, not SQL Server CPU time.
 
-This update does not add response-byte/cell limits or change TLS behavior. Structured contracts increase full-profile descriptor size; choose query for known SQL to reduce context. Measure actual tokens and throughput with your client and database. MCP Python SDK 1.27+ is required.
+Tool descriptions are shorter while full outputSchema contracts and server-side response validation remain intact. AST routing reuses one analysis; keyword checks and cache freshness calculations share their results. Unused internal domain models and enums have been removed. Choose query for known SQL to reduce context. Measure actual tokens and throughput with your client and database. MCP Python SDK 1.27+ is required.
 
 </details>
 
@@ -193,7 +209,9 @@ Existing environment-variable and `.env` startup remains available; see [`.env.e
 
 ```bash
 uv sync --locked --extra dev
-uv run pytest tests/unit
+uv run pytest
+uvx ruff check .
+uvx ruff format .
 ```
 
 </details>

@@ -1,55 +1,66 @@
-from typing import Optional
-
 from mcp.types import Tool
 
 from ...services import metadata_service, semantic_service
 from ..app import get_context, register_tool
-from .shape import (
-    project_describe_table, resolve_detail,
-)
+from ._shared import normalize_schema_filter
 
 
-_DETAIL_PROP = {
-    "type": "string", "enum": ["brief", "standard", "full"],
-    "default": "brief",
-    "description": "Response verbosity. brief = minimal identification + counts; "
-                   "standard = columns+FKs; full = indexes+descriptions.",
-}
-
-
-_BUDGET_PROP = {
-    "type": "string", "enum": ["tiny", "low", "medium", "high"],
-    "description": "Optional override. Omit to use the server budget "
-                   "(medium by default).",
-}
-
-
-_BUDGET_LIMITS = {
-    "tiny":   20,
-    "low":    100,
-    "medium": 500,
-    "high":   2000,
-}
+def _project_describe_table(full: dict, column_semantics: dict[str, str], max_columns: int) -> dict:
+    schema = full.get("schema_name", "")
+    table = full.get("table_name", "")
+    columns = full.get("columns", [])
+    fks = full.get("foreign_keys", []) or []
+    shown = columns[:max_columns]
+    cols = []
+    for c in shown:
+        cols.append(
+            {
+                "name": c["column_name"],
+                "type": c.get("sql_type", c.get("data_type")),
+                "is_nullable": bool(c.get("is_nullable")),
+                "max_length": c.get("max_length"),
+                "numeric_precision": c.get("numeric_precision"),
+                "numeric_scale": c.get("numeric_scale"),
+                "datetime_precision": c.get("datetime_precision"),
+                "collation": c.get("collation_name"),
+                "default_value": c.get("default_value"),
+                "description": c.get("description"),
+                "semantic": column_semantics.get(c["column_name"]) or "generic",
+            }
+        )
+    out: dict = {
+        "table": f"{schema}.{table}",
+        "column_count": full.get("column_count", len(columns)),
+        "columns_omitted": bool(full.get("columns_omitted")) or len(shown) < len(columns),
+        "pk": list(full.get("primary_key", []) or []),
+        "classification": (full.get("classification") or {}).get("type", "unknown"),
+        "columns": cols,
+        "foreign_keys": list(fks),
+        "join_constraints": full.get("join_constraints", []),
+        "required_join_columns": full.get("required_join_columns", []),
+        "indexes": full.get("indexes", []),
+        "description": full.get("description"),
+    }
+    if out["columns_omitted"] and len(shown) < len(columns):
+        out["columns_hint"] = "Column list capped; pass `columns` to select specific columns."
+    if full.get("cache"):
+        out["cache"] = full["cache"]
+    if full.get("structural_hash"):
+        out["schema_version"] = full["structural_hash"]
+    return out
 
 
 def register() -> None:
     register_tool(
         Tool(
             name="get_tables",
-            description=(
-                "List tables in the database. Supports schema / keyword filters "
-                "so the response stays small on large DBs. Pass limit or "
-                "token_budget_hint to further cap the payload."
-            ),
+            description="List tables in the database. Supports schema, keyword, and limit filters.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "schema":  {"oneOf": [{"type": "string"},
-                                          {"type": "array",
-                                           "items": {"type": "string"}}]},
+                    "schema": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
                     "keyword": {"type": "string"},
-                    "limit":   {"type": "integer", "minimum": 1},
-                    "token_budget_hint": _BUDGET_PROP,
+                    "limit": {"type": "integer", "minimum": 1},
                 },
             },
         ),
@@ -58,21 +69,18 @@ def register() -> None:
     register_tool(
         Tool(
             name="describe_table",
-            description=(
-                "Return table metadata. detail=brief (default) returns a compact "
-                "summary {table, column_count, pk, fk_to, important_columns, "
-                "classification}. standard adds columns+FKs; full adds indexes "
-                "and descriptions."
-            ),
+            description="Table columns with SQL types, keys, joins, indexes and descriptions.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "schema": {"type": "string"},
-                    "table":  {"type": "string"},
-                    "detail": _DETAIL_PROP,
-                    "columns": {"type": "array", "items": {"type": "string"},
-                                "minItems": 1, "uniqueItems": True,
-                                "description": "Only return these columns; standard includes exact SQL types and complete join pairs."},
+                    "table": {"type": "string"},
+                    "columns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
                 },
                 "required": ["schema", "table"],
             },
@@ -81,61 +89,42 @@ def register() -> None:
     )
 
 
-def _normalize_schema_filter(raw) -> Optional[list[str]]:
-    if raw is None:
-        return None
-    if isinstance(raw, str):
-        return [raw] if raw else None
-    if isinstance(raw, list):
-        vals = [s for s in raw if isinstance(s, str) and s]
-        return vals or None
-    return None
-
-
-def _resolve_list_limit(args: dict, cfg_default: str) -> int | None:
+def _resolve_list_limit(args: dict, default: int) -> int:
     explicit = args.get("limit")
     if isinstance(explicit, int) and explicit > 0:
         return explicit
-    hint = args.get("token_budget_hint") or cfg_default
-    return _BUDGET_LIMITS.get(hint)
+    return default
 
 
 async def _get_tables(args: dict) -> list[dict]:
     ctx = get_context()
-    schemas = _normalize_schema_filter(args.get("schema"))
+    schemas = normalize_schema_filter(args.get("schema"))
     keyword = args.get("keyword") or None
-    cap = _resolve_list_limit(args, ctx.cfg.default_token_budget_hint)
+    cap = _resolve_list_limit(args, ctx.cfg.max_list_items)
     rows = await metadata_service.list_tables(
-        ctx.cfg.cache_path, ctx.cfg.mssql_database,
-        schemas=schemas, keyword=keyword, limit=cap, policy=ctx.policy,
+        ctx.cfg.cache_path,
+        ctx.cfg.mssql_database,
+        schemas=schemas,
+        keyword=keyword,
+        limit=cap,
+        policy=ctx.policy,
     )
-    cap = _resolve_list_limit(args, ctx.cfg.default_token_budget_hint)
-    if cap is not None and len(rows) > cap:
-        return rows[:cap]
-    return rows
+    return rows[:cap]
 
 
-async def _describe_table(args: dict) -> Optional[dict]:
+async def _describe_table(args: dict) -> dict | None:
     ctx = get_context()
-    detail = resolve_detail(args)
-    cp = ctx.cfg.cache_path
-    db = ctx.cfg.mssql_database
-    schema = args["schema"]
-    table = args["table"]
-
-    if args.get("columns") and detail == "brief":
-        detail = "standard"
     full = await metadata_service.describe_table(
-        cp, db, schema, table, detail=detail, columns=args.get("columns"), policy=ctx.policy)
+        ctx.cfg.cache_path,
+        ctx.cfg.mssql_database,
+        args["schema"],
+        args["table"],
+        columns=args.get("columns"),
+        policy=ctx.policy,
+    )
     if full is None:
         return None
-
-    classification = full.get("classification")
     semantic_map = {
-        c["column_name"]: (semantic_service._column_semantic(c) or "generic")
-        for c in full.get("columns", [])
+        c["column_name"]: (semantic_service._column_semantic(c) or "generic") for c in full.get("columns", [])
     }
-    return project_describe_table(
-        full, detail=detail,
-        classification=classification, column_semantics=semantic_map,
-    )
+    return _project_describe_table(full, semantic_map, ctx.cfg.max_list_items)

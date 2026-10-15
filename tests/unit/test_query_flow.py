@@ -1,4 +1,5 @@
-"""Unit tests for plan_or_execute_query (v0.5)."""
+"""Unit tests for plan_or_execute_query."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -105,7 +106,9 @@ def test_natural_language_routes_to_discovery(ctx):
     )
     assert env["data"]["path"] == "discovery"
     assert env["recommended_tool"] in (
-        "discover_relevant_tables", "describe_table", "find_join_path",
+        "discover_relevant_tables",
+        "describe_table",
+        "find_join_path",
     )
 
 
@@ -129,11 +132,12 @@ def test_direct_execute_happy_path(mock_open, ctx):
     assert env["data"]["columns"] == ["id", "name"]
     assert env["data"]["row_count"] == 2
     assert env["data"]["rows"] == [[1, "A"], [2, "B"]]
-    assert env["next_action"] == "refine_or_done"
+    assert env["next_action"] == "done"
+    assert "validation" not in env["data"]
 
 
 @patch("sqlserver_semantic_mcp.services.query_service.open_connection")
-def test_summary_response_mode_preserves_small_result(mock_open, ctx):
+def test_small_result_is_complete_and_exact(mock_open, ctx):
     conn = MagicMock()
     cursor = MagicMock()
     cursor.description = [("id",)]
@@ -145,24 +149,23 @@ def test_summary_response_mode_preserves_small_result(mock_open, ctx):
         "SELECT * FROM dbo.T",
         policy=ctx["policy"],
         query_service=ctx["query"],
-        return_mode="summary",
         cfg=ctx["cfg"],
     )
     data = env["data"]
     assert data["executed"] is True
     assert data["rows"] == [[1], [2]]
     assert data["row_count"] == 2
-    assert data["returned_row_count"] == data["total_row_count"] == 2
+    assert data["total_row_count"] == 2
     assert data["result_complete"] is True
     assert data["columns"] == ["id"]
 
 
 @patch("sqlserver_semantic_mcp.services.query_service.open_connection")
-def test_sample_mode_truncates_rows(mock_open, ctx):
+def test_row_limit_truncates_and_reports_reason(mock_open, ctx):
     conn = MagicMock()
     cursor = MagicMock()
     cursor.description = [("id",)]
-    cursor.fetchmany.return_value = [(n,) for n in range(50)]
+    cursor.fetchmany.return_value = [(n,) for n in range(4)]
     conn.cursor.return_value = cursor
     mock_open.return_value.__enter__.return_value = conn
 
@@ -170,14 +173,12 @@ def test_sample_mode_truncates_rows(mock_open, ctx):
         "SELECT * FROM dbo.T",
         policy=ctx["policy"],
         query_service=ctx["query"],
-        return_mode="sample",
-        token_budget_hint="tiny",
+        max_rows=3,
         cfg=ctx["cfg"],
     )
     data = env["data"]
-    assert "sample_rows" in data
-    assert len(data["sample_rows"]) == 3  # tiny = 3
-    assert data["sample_size"] == 3
-    cursor.fetchmany.assert_called_once_with(4)
+    assert data["rows"] == [[0], [1], [2]]
+    assert data["truncated"] is True
+    assert data["truncation_reason"] == "row_limit"
     assert data["total_row_count"] is None
-    assert data["returned_row_count"] == 3
+    assert "sample_rows" not in data

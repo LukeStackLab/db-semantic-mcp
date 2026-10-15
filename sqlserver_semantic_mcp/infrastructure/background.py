@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from typing import Optional
 
 from ..config import Config, get_config
 from ..services import semantic_service
@@ -9,23 +8,33 @@ from .cache.semantic import list_pending_table_analyses, record_table_analysis_f
 logger = logging.getLogger(__name__)
 
 
-async def run_background_fill_once(cfg: Optional[Config] = None) -> int:
+async def run_background_fill_once(cfg: Config | None = None) -> int:
     cfg = cfg or get_config()
     pending = await list_pending_table_analyses(
-        cfg.cache_path, cfg.mssql_database, cfg.background_batch_size,
+        cfg.cache_path,
+        cfg.mssql_database,
+        cfg.background_batch_size,
     )
-    for (s, t) in pending:
+    for s, t in pending:
         try:
             await semantic_service.classify_table(
-                cfg.cache_path, cfg.mssql_database, s, t, force=True,
+                cfg.cache_path,
+                cfg.mssql_database,
+                s,
+                t,
+                force=True,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 (background task must not crash the server)
             message = str(exc)
             if cfg.mssql_password:
                 message = message.replace(cfg.mssql_password, "***")
             await record_table_analysis_failure(
-                cfg.cache_path, cfg.mssql_database, s, t,
-                error_message=message, retry_base_s=cfg.background_retry_base_s,
+                cfg.cache_path,
+                cfg.mssql_database,
+                s,
+                t,
+                error_message=message,
+                retry_base_s=cfg.background_retry_base_s,
                 retry_max_s=cfg.background_retry_max_s,
             )
             logger.error("Background classify failed for %s.%s: %s", s, t, message)
@@ -33,8 +42,8 @@ async def run_background_fill_once(cfg: Optional[Config] = None) -> int:
 
 
 async def background_fill_loop(
-    cfg: Optional[Config] = None,
-    stop_event: Optional[asyncio.Event] = None,
+    cfg: Config | None = None,
+    stop_event: asyncio.Event | None = None,
 ) -> None:
     cfg = cfg or get_config()
     stop_event = stop_event or asyncio.Event()
@@ -50,18 +59,19 @@ async def background_fill_loop(
             if processed == 0:
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=10.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 continue
             await asyncio.sleep(interval)
-        except Exception:
+        except Exception:  # noqa: BLE001 (background task must not crash the server)
             consecutive_errors += 1
-            backoff = min(max_backoff, 2.0 ** consecutive_errors)
+            backoff = min(max_backoff, 2.0**consecutive_errors)
             logger.exception(
                 "Background fill iteration failed (attempt=%d, next retry in %.1fs)",
-                consecutive_errors, backoff,
+                consecutive_errors,
+                backoff,
             )
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=backoff)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue

@@ -1,5 +1,5 @@
+from sqlserver_semantic_mcp.domain.enums import RiskLevel, SqlOperation
 from sqlserver_semantic_mcp.policy.analyzer import analyze_sql
-from sqlserver_semantic_mcp.domain.enums import SqlOperation, RiskLevel
 
 
 def test_select_simple():
@@ -50,7 +50,8 @@ def test_comments_stripped():
 def test_exec_procedure():
     intent = analyze_sql("EXEC dbo.SpSomething @p = 1")
     assert intent.primary_operation in (
-        SqlOperation.EXEC, SqlOperation.EXECUTE,
+        SqlOperation.EXEC,
+        SqlOperation.EXECUTE,
     )
 
 

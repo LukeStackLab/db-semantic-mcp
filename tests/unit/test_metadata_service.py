@@ -1,10 +1,14 @@
 import pytest
+
 from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
 from sqlserver_semantic_mcp.infrastructure.cache.structural import (
-    write_structural_snapshot, StructuralSnapshot,
+    StructuralSnapshot,
+    write_structural_snapshot,
 )
 from sqlserver_semantic_mcp.services.metadata_service import (
-    list_tables, describe_table, database_summary,
+    database_summary,
+    describe_table,
+    list_tables,
 )
 
 
@@ -23,8 +27,7 @@ async def _setup(tmp_path):
         foreign_keys=[("dbo", "Orders", "UserId", "dbo", "Users", "Id")],
         indexes=[("dbo", "Users", "PK_Users", 1, 1, "Id")],
         objects=[],
-        comments=[("dbo", "Users", "", "users table"),
-                  ("dbo", "Users", "Id", "pk")],
+        comments=[("dbo", "Users", "", "users table"), ("dbo", "Users", "Id", "pk")],
     )
     await write_structural_snapshot(db_path, "testdb", snap)
     return db_path

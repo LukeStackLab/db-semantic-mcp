@@ -1,4 +1,5 @@
 """One immutable connection profile per MCP process."""
+
 import hashlib
 import json
 import os
@@ -6,12 +7,12 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from .config import Config, DEFAULT_TOKEN_BUDGET_HINT, TokenBudgetHint
+from .config import Config
 from .credentials import CredentialReference, read_password
 from .policy.models import PolicyFile, PolicyOperations, PolicyProfile
-from .setup.files import SetupError, atomic_write, read_snapshot
+from .setup.files import SetupError, read_snapshot
 
 
 class ConnectionProfile(BaseModel):
@@ -23,7 +24,8 @@ class ConnectionProfile(BaseModel):
     user: str = Field(min_length=1)
     port: int = Field(default=1433, ge=1, le=65535)
     readonly: bool = True
-    budget: TokenBudgetHint = DEFAULT_TOKEN_BUDGET_HINT
+    max_response_bytes: int = Field(default=65536, ge=1024)
+    max_cell_chars: int = Field(default=2000, ge=16)
     tool_profile: str = "all"
     discovery_aliases: dict[str, list[str]] = Field(default_factory=dict)
     db_worker_limit: int = Field(default=4, ge=1, le=32)
@@ -34,13 +36,20 @@ class ConnectionProfile(BaseModel):
     query_timeout: int = Field(default=30, ge=1)
     credential: CredentialReference | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def drop_retired_fields(cls, data):
+        # Profiles written before the token-budget tiers were removed.
+        if isinstance(data, dict) and "budget" in data:
+            data = {k: v for k, v in data.items() if k != "budget"}
+        return data
+
     @field_validator("tool_profile")
     @classmethod
     def valid_tool_profile(cls, value: str) -> str:
         # Keep validation independent of server imports and registration.
         aliases = {"all", "query", "explore", "maintenance"}
-        groups = {"metadata", "policy", "query", "cache", "relationship",
-                  "object", "semantic", "metrics", "workflow"}
+        groups = {"metadata", "policy", "query", "cache", "relationship", "object", "semantic", "metrics", "workflow"}
         value = value.strip()
         if value in aliases:
             return value
@@ -52,9 +61,7 @@ class ConnectionProfile(BaseModel):
     @field_validator("name")
     @classmethod
     def portable_name(cls, value: str) -> str:
-        reserved = {"CON", "PRN", "AUX", "NUL"} | {
-            f"{prefix}{n}" for prefix in ("COM", "LPT") for n in range(1, 10)
-        }
+        reserved = {"CON", "PRN", "AUX", "NUL"} | {f"{prefix}{n}" for prefix in ("COM", "LPT") for n in range(1, 10)}
         if value.upper() in reserved:
             raise ValueError("Reserved file name")
         return value
@@ -68,18 +75,20 @@ class ConnectionProfile(BaseModel):
         return value
 
     def policy(self) -> PolicyProfile:
-        return PolicyProfile.model_validate({
-            "profile_name": "readonly" if self.readonly else "read_write_safe",
-            "operations": {"select": True, "insert": not self.readonly, "update": not self.readonly},
-            "constraints": {
-                "require_where_for_update": True,
-                "allow_multi_statement": False,
-                "max_rows_returned": self.max_rows_returned,
-                "max_rows_affected": self.max_rows_affected,
-                "query_timeout_seconds": self.query_timeout,
-            },
-            "scope": {"allowed_databases": [self.database]},
-        })
+        return PolicyProfile.model_validate(
+            {
+                "profile_name": "readonly" if self.readonly else "read_write_safe",
+                "operations": {"select": True, "insert": not self.readonly, "update": not self.readonly},
+                "constraints": {
+                    "require_where_for_update": True,
+                    "allow_multi_statement": False,
+                    "max_rows_returned": self.max_rows_returned,
+                    "max_rows_affected": self.max_rows_affected,
+                    "query_timeout_seconds": self.query_timeout,
+                },
+                "scope": {"allowed_databases": [self.database]},
+            }
+        )
 
 
 def default_config_root() -> Path:
@@ -104,24 +113,32 @@ def read_profile(path: Path) -> ConnectionProfile:
 
 
 def config_for_profile(
-    profile: ConnectionProfile, directory: Path, password: str,
-    *, policy_path: Path | None = None,
+    profile: ConnectionProfile,
+    directory: Path,
+    password: str,
+    *,
+    policy_path: Path | None = None,
 ) -> Config:
     # Pass every field explicitly: inherited env and cwd .env must not
     # override even fields that this profile leaves at their defaults.
     values = {
         name: field.get_default(call_default_factory=True)
-        for name, field in Config.model_fields.items() if not field.is_required()
+        for name, field in Config.model_fields.items()
+        if not field.is_required()
     }
     values.update(
         connection_name=profile.name,
-        mssql_server=profile.server, mssql_database=profile.database,
-        mssql_user=profile.user, mssql_password=password,
-        mssql_port=profile.port, mssql_encrypt=profile.encrypt,
+        mssql_server=profile.server,
+        mssql_database=profile.database,
+        mssql_user=profile.user,
+        mssql_password=password,
+        mssql_port=profile.port,
+        mssql_encrypt=profile.encrypt,
         cache_path=str(directory / "cache" / "semantic.db"),
         policy_file=str(policy_path) if policy_path else None,
         policy_profile=profile.policy().profile_name,
-        default_token_budget_hint=profile.budget,
+        max_response_bytes=profile.max_response_bytes,
+        max_cell_chars=profile.max_cell_chars,
         tool_profile=profile.tool_profile,
         discovery_aliases=profile.discovery_aliases,
         db_worker_limit=profile.db_worker_limit,
@@ -138,7 +155,9 @@ def profile_bytes(profile: ConnectionProfile) -> bytes:
 
 
 def policy_bytes(
-    profile: ConnectionProfile, *, previous_policy: bytes | None = None,
+    profile: ConnectionProfile,
+    *,
+    previous_policy: bytes | None = None,
     previous_database: str | None = None,
     previous_readonly: bool | None = None,
 ) -> bytes:
@@ -164,10 +183,17 @@ def policy_bytes(
         policy.scope = previous.scope.model_copy(deep=True)
         if not policy.scope.allowed_databases or policy.scope.allowed_databases == [previous_database]:
             policy.scope.allowed_databases = [profile.database]
-    return (json.dumps({
-        "active_profile": policy.profile_name,
-        "profiles": {policy.profile_name: policy.model_dump()},
-    }, ensure_ascii=False, indent=2) + "\n").encode()
+    return (
+        json.dumps(
+            {
+                "active_profile": policy.profile_name,
+                "profiles": {policy.profile_name: policy.model_dump()},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    ).encode()
 
 
 def load_profile(path: Path) -> Config:
@@ -199,11 +225,18 @@ def load_profile(path: Path) -> Config:
     cfg.query_timeout = min(cfg.query_timeout, policy.constraints.query_timeout_seconds)
     if not profile.readonly and not policy.constraints.require_where_for_update:
         raise SetupError("受限寫入必須要求 UPDATE 使用 WHERE。")
-    identity = hashlib.sha256(json.dumps({
-        "server": profile.server, "port": profile.port,
-        "database": profile.database, "user": profile.user,
-        "policy": policy.model_dump(),
-    }, sort_keys=True).encode()).hexdigest()
+    identity = hashlib.sha256(
+        json.dumps(
+            {
+                "server": profile.server,
+                "port": profile.port,
+                "database": profile.database,
+                "user": profile.user,
+                "policy": policy.model_dump(),
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
     # A changed target/principal/policy gets a fresh cache without deleting
     # another process's existing cache.
     cfg.cache_path = str(path.parent / "cache" / identity[:24] / "semantic.db")

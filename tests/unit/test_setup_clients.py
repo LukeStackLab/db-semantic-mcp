@@ -4,7 +4,10 @@ import pytest
 import tomlkit
 
 from sqlserver_semantic_mcp.setup.clients import (
-    ClientTarget, merge_servers, register_servers, server_entry,
+    ClientTarget,
+    merge_servers,
+    register_servers,
+    server_entry,
 )
 from sqlserver_semantic_mcp.setup.files import SetupError
 
@@ -34,20 +37,29 @@ def test_registration_preserves_unrelated_settings_and_creates_backup(tmp_path, 
         assert parsed["theme"] == "dark"
 
 
-@pytest.mark.parametrize("format,original", [
-    ("json", b'{"mcpServers":{"erp":{"command":"other","args":[]}}}'),
-    ("toml", b'[mcp_servers.erp]\ncommand="other"\nargs=[]\n'),
-])
+@pytest.mark.parametrize(
+    "format,original",
+    [
+        ("json", b'{"mcpServers":{"erp":{"command":"other","args":[]}}}'),
+        ("toml", b'[mcp_servers.erp]\ncommand="other"\nargs=[]\n'),
+    ],
+)
 def test_name_collision_does_not_overwrite(tmp_path, format, original):
     target = ClientTarget("test", "Test", tmp_path / "config", format)
     with pytest.raises(SetupError, match="已被其他"):
         merge_servers(target, original, {"erp": server_entry(tmp_path / "erp.json")})
 
 
-@pytest.mark.parametrize("format,original", [
-    ("json", b"not-json"), ("json", b"[]"), ("json", b'{"mcpServers":[]}'),
-    ("toml", b"[invalid"), ("toml", b'mcp_servers="invalid"'),
-])
+@pytest.mark.parametrize(
+    "format,original",
+    [
+        ("json", b"not-json"),
+        ("json", b"[]"),
+        ("json", b'{"mcpServers":[]}'),
+        ("toml", b"[invalid"),
+        ("toml", b'mcp_servers="invalid"'),
+    ],
+)
 def test_malformed_client_config_is_rejected(tmp_path, format, original):
     target = ClientTarget("test", "Test", tmp_path / "config", format)
     with pytest.raises(SetupError):

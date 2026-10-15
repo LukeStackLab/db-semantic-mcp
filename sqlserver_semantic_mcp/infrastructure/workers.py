@@ -1,11 +1,13 @@
 """Bound synchronous DB work without tying its lifetime to the awaiting task."""
+
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar
 from time import perf_counter
-from typing import Callable, TypeVar
+from typing import TypeVar
 from weakref import WeakKeyDictionary
 
 from ..config import Config
@@ -98,9 +100,13 @@ async def shutdown_db_workers() -> None:
         return
     if workers.shutdown_task is None:
         workers.closing = True
-        workers.shutdown_task = asyncio.create_task(asyncio.to_thread(
-            workers.executor.shutdown, wait=True, cancel_futures=False,
-        ))
+        workers.shutdown_task = asyncio.create_task(
+            asyncio.to_thread(
+                workers.executor.shutdown,
+                wait=True,
+                cancel_futures=False,
+            )
+        )
 
         def finished(_task: asyncio.Task) -> None:
             if _WORKERS.get(loop) is workers:

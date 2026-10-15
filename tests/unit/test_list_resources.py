@@ -9,6 +9,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
     from sqlserver_semantic_mcp.config import reset_config
+
     reset_config()
 
 
@@ -31,10 +32,10 @@ async def test_list_resource_templates_returns_expected_patterns(env):
     templates = await mod.list_resource_templates()
     patterns = [t.uriTemplate for t in templates]
 
-    # v0.4 baseline templates
+    # Schema and classification templates
     assert "semantic://schema/tables/{qualified}" in patterns
     assert "semantic://analysis/classification/{qualified}" in patterns
-    # v0.5 AI-ready summary templates
+    # Summary and bundle templates
     assert "semantic://summary/table/{qualified}" in patterns
     assert "semantic://summary/object/{type}/{qualified}" in patterns
     assert "semantic://bundle/joining/{qualified}" in patterns

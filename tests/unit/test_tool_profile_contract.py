@@ -1,16 +1,19 @@
 import pytest
 
-from sqlserver_semantic_mcp.config import Config, configure
+from sqlserver_semantic_mcp.config import Config
 from sqlserver_semantic_mcp.profiles import ConnectionProfile, config_for_profile
 from sqlserver_semantic_mcp.server import app as server
 from sqlserver_semantic_mcp.server.prompts import registry
 from sqlserver_semantic_mcp.server.tools import register_all
 
 
-@pytest.mark.parametrize("profile,expected", [
-    ("query", {"get_execution_policy", "plan_or_execute_query"}),
-    ("maintenance", {"get_execution_policy", "refresh_schema_cache", "tool_metrics"}),
-])
+@pytest.mark.parametrize(
+    "profile,expected",
+    [
+        ("query", {"get_execution_policy", "plan_or_execute_query"}),
+        ("maintenance", {"get_execution_policy", "refresh_schema_cache", "tool_metrics"}),
+    ],
+)
 def test_named_profiles_register_only_selected_tools(profile, expected, monkeypatch):
     cfg = Config.model_construct(mssql_server="fake", mssql_database="db", tool_profile=profile)
     monkeypatch.setattr("sqlserver_semantic_mcp.config._config", cfg)
@@ -20,8 +23,15 @@ def test_named_profiles_register_only_selected_tools(profile, expected, monkeypa
 
 
 def test_fixed_profile_exposes_tool_and_discovery_options(tmp_path):
-    profile = ConnectionProfile(name="test", server="fake", database="db", user="u", tool_profile="explore",
-                                discovery_aliases={"訂單": ["SalesOrder"]}, db_worker_limit=2)
+    profile = ConnectionProfile(
+        name="test",
+        server="fake",
+        database="db",
+        user="u",
+        tool_profile="explore",
+        discovery_aliases={"訂單": ["SalesOrder"]},
+        db_worker_limit=2,
+    )
     cfg = config_for_profile(profile, tmp_path, "fake")
     assert cfg.tool_profile == "explore"
     assert cfg.db_worker_limit == 2

@@ -7,10 +7,7 @@ def register() -> None:
     register_tool(
         Tool(
             name="get_execution_policy",
-            description=(
-                "Return the active execution policy. reload=true re-reads "
-                "the policy file from disk first."
-            ),
+            description="Return active policy rules and constraints. reload=true re-reads disk file.",
             inputSchema={
                 "type": "object",
                 "properties": {

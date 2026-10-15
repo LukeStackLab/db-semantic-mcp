@@ -1,7 +1,6 @@
 """Direct-execution fast path for SQL-ready agents."""
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from ..config import Config, get_config
 from ..services.policy_service import PolicyService
@@ -16,13 +15,10 @@ def plan_or_execute_query(
     policy: PolicyService,
     query_service: QueryService,
     mode: str = "auto",
-    max_rows: Optional[int] = None,
-    return_mode: Optional[str] = None,
-    detail: str = "brief",
-    token_budget_hint: Optional[str] = None,
-    affected_rows_policy: Optional[str] = None,
+    max_rows: int | None = None,
+    affected_rows_policy: str | None = None,
     validate_result_schema: bool = False,
-    cfg: Optional[Config] = None,
+    cfg: Config | None = None,
 ) -> dict:
     """Single entry point for agents holding ready-to-run SQL.
 
@@ -42,23 +38,26 @@ def plan_or_execute_query(
         risk_level, risks = _assess_risk(intent, policy)
         return ToolEnvelope(
             kind="plan_or_execute_query",
-            detail=detail,
             confidence=payload["intent"]["confidence"],
             next_action=payload["next_action"],
             recommended_tool="plan_or_execute_query",
             data={
-                "path": "direct_validate", "executed": False,
-                "risk_level": risk_level, "risks": risks, **payload,
+                "path": "direct_validate",
+                "executed": False,
+                "risk_level": risk_level,
+                "risks": risks,
+                **payload,
             },
         ).to_dict()
 
     if mode == "dry_run":
         preview = query_service.preview_query(
-            query, max_rows=max_rows, database=database,
+            query,
+            max_rows=max_rows,
+            database=database,
         )
         return ToolEnvelope(
             kind="plan_or_execute_query",
-            detail=detail,
             next_action=preview["next_action"],
             recommended_tool="plan_or_execute_query",
             data={"path": "dry_run", "executed": False, **preview},
@@ -70,22 +69,17 @@ def plan_or_execute_query(
         result = query_service.execute_query(
             query,
             max_rows=max_rows,
-            response_mode=return_mode,
-            token_budget_hint=token_budget_hint,
             affected_rows_policy=affected_rows_policy,
             validate_result_schema=validate_result_schema,
             database=database,
         )
-        if detail == "brief" and result.get("executed"):
-            # Execution already passed the same policy; full intent remains
-            # available through validate/standard rather than repeated here.
+        if result.get("executed"):
+            # Execution already passed the same policy; the intent remains
+            # available through mode="validate" rather than repeated here.
             result = {key: value for key, value in result.items() if key != "validation"}
         data = {"path": "direct_execute", **result}
-        if detail != "brief":
-            data["route"] = decision.to_dict()
         return ToolEnvelope(
             kind="plan_or_execute_query",
-            detail=detail,
             confidence=decision.confidence,
             next_action=result.get("next_action", "done"),
             recommended_tool=None,
@@ -97,7 +91,6 @@ def plan_or_execute_query(
         payload = query_service.validate_query(query, database=database)
         return ToolEnvelope(
             kind="plan_or_execute_query",
-            detail=detail,
             confidence=decision.confidence,
             next_action=payload["next_action"],
             recommended_tool="plan_or_execute_query",
@@ -112,11 +105,9 @@ def plan_or_execute_query(
     # discovery / policy_only
     return ToolEnvelope(
         kind="plan_or_execute_query",
-        detail=detail,
         confidence=decision.confidence,
         next_action="discover",
-        recommended_tool=decision.recommended_tools[0]
-        if decision.recommended_tools else "discover_relevant_tables",
+        recommended_tool=decision.recommended_tools[0] if decision.recommended_tools else "discover_relevant_tables",
         data={
             "path": decision.route,
             "executed": False,
@@ -143,15 +134,19 @@ def _assess_risk(intent, policy):
 
     if intent.risk_level.value in ("critical", "high"):
         bump(intent.risk_level.value)
-        risks.append({"kind": "policy_risk",
-                      "detail": f"{intent.primary_operation.value} is "
-                                f"{intent.risk_level.value}-risk"})
+        risks.append(
+            {"kind": "policy_risk", "detail": f"{intent.primary_operation.value} is {intent.risk_level.value}-risk"}
+        )
     if intent.is_multi_statement and not policy.current_policy().constraints.allow_multi_statement:
-        bump("high"); risks.append({"kind": "policy_risk", "detail": "multi-statement disallowed"})
+        bump("high")
+        risks.append({"kind": "policy_risk", "detail": "multi-statement disallowed"})
     if intent.has_unqualified_tables:
-        bump("medium"); risks.append({"kind": "schema_qualification_risk", "detail": "unqualified tables"})
+        bump("medium")
+        risks.append({"kind": "schema_qualification_risk", "detail": "unqualified tables"})
     if intent.contains_dynamic_sql:
-        bump("high"); risks.append({"kind": "dynamic_sql_risk", "detail": "dynamic SQL not inspectable"})
+        bump("high")
+        risks.append({"kind": "dynamic_sql_risk", "detail": "dynamic SQL not inspectable"})
     if intent.primary_operation.value == "SELECT" and not intent.has_top_clause and not intent.has_where_clause:
-        bump("medium"); risks.append({"kind": "payload_risk", "detail": "SELECT without TOP/WHERE"})
+        bump("medium")
+        risks.append({"kind": "payload_risk", "detail": "SELECT without TOP/WHERE"})
     return level, risks

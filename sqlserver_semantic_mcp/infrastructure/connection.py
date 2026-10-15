@@ -1,6 +1,7 @@
 import logging
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 import pymssql
 
@@ -32,10 +33,7 @@ def build_pymssql_kwargs(cfg: Config) -> dict[str, Any]:
 
     if not cfg.mssql_windows_auth:
         if cfg.mssql_user is None or cfg.mssql_password is None:
-            raise ValueError(
-                "SQL auth requires SEMANTIC_MCP_MSSQL_USER and "
-                "SEMANTIC_MCP_MSSQL_PASSWORD"
-            )
+            raise ValueError("SQL auth requires SEMANTIC_MCP_MSSQL_USER and SEMANTIC_MCP_MSSQL_PASSWORD")
         kwargs["user"] = cfg.mssql_user
         kwargs["password"] = cfg.mssql_password
 

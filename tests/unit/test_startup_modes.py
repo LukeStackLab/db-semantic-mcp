@@ -24,25 +24,31 @@ async def test_startup_cache_first_reuses_existing_cache(env, monkeypatch):
 
     from sqlserver_semantic_mcp import main as mod
 
-    with patch.object(mod, "init_store", AsyncMock()), \
-         patch.object(
-             mod, "read_schema_version",
-             AsyncMock(return_value={
-                 "database_name": "testdb",
-                 "structural_hash": "cached-hash",
-                 "captured_at": "2026-04-21T00:00:00+00:00",
-             }),
-         ), \
-         patch.object(mod, "warmup_structural_cache", AsyncMock()) as warmup, \
-         patch.object(mod, "enqueue_all_tables", AsyncMock()) as enqueue, \
-         patch.object(
-             mod, "background_fill_loop",
-             MagicMock(return_value="bg-loop"),
-         ) as bg_loop, \
-         patch.object(mod, "register_all"), \
-         patch.object(mod, "register_prompts"), \
-         patch.object(mod, "get_context"), \
-         patch("sqlserver_semantic_mcp.main.asyncio.create_task") as create_task:
+    with (
+        patch.object(mod, "init_store", AsyncMock()),
+        patch.object(
+            mod,
+            "read_schema_version",
+            AsyncMock(
+                return_value={
+                    "database_name": "testdb",
+                    "structural_hash": "cached-hash",
+                    "captured_at": "2026-04-21T00:00:00+00:00",
+                }
+            ),
+        ),
+        patch.object(mod, "warmup_structural_cache", AsyncMock()) as warmup,
+        patch.object(mod, "enqueue_all_tables", AsyncMock()) as enqueue,
+        patch.object(
+            mod,
+            "background_fill_loop",
+            MagicMock(return_value="bg-loop"),
+        ) as bg_loop,
+        patch.object(mod, "register_all"),
+        patch.object(mod, "register_prompts"),
+        patch.object(mod, "get_context"),
+        patch("sqlserver_semantic_mcp.main.asyncio.create_task") as create_task,
+    ):
         fake_task = MagicMock()
         create_task.return_value = fake_task
 
@@ -63,28 +69,35 @@ async def test_startup_full_mode_forces_warmup(env, monkeypatch):
 
     from sqlserver_semantic_mcp import main as mod
 
-    with patch.object(mod, "init_store", AsyncMock()), \
-         patch.object(
-             mod, "read_schema_version",
-             AsyncMock(return_value={
-                 "database_name": "testdb",
-                 "structural_hash": "old-hash",
-                 "captured_at": "2026-04-21T00:00:00+00:00",
-             }),
-         ), \
-         patch.object(
-             mod, "warmup_structural_cache",
-             AsyncMock(return_value={"structural_hash": "fresh-hash"}),
-         ) as warmup, \
-         patch.object(mod, "enqueue_all_tables", AsyncMock()) as enqueue, \
-         patch.object(
-             mod, "background_fill_loop",
-             MagicMock(return_value="bg-loop"),
-         ) as bg_loop, \
-         patch.object(mod, "register_all"), \
-         patch.object(mod, "register_prompts"), \
-         patch.object(mod, "get_context"), \
-         patch("sqlserver_semantic_mcp.main.asyncio.create_task") as create_task:
+    with (
+        patch.object(mod, "init_store", AsyncMock()),
+        patch.object(
+            mod,
+            "read_schema_version",
+            AsyncMock(
+                return_value={
+                    "database_name": "testdb",
+                    "structural_hash": "old-hash",
+                    "captured_at": "2026-04-21T00:00:00+00:00",
+                }
+            ),
+        ),
+        patch.object(
+            mod,
+            "warmup_structural_cache",
+            AsyncMock(return_value={"structural_hash": "fresh-hash"}),
+        ) as warmup,
+        patch.object(mod, "enqueue_all_tables", AsyncMock()) as enqueue,
+        patch.object(
+            mod,
+            "background_fill_loop",
+            MagicMock(return_value="bg-loop"),
+        ) as bg_loop,
+        patch.object(mod, "register_all"),
+        patch.object(mod, "register_prompts"),
+        patch.object(mod, "get_context"),
+        patch("sqlserver_semantic_mcp.main.asyncio.create_task") as create_task,
+    ):
         fake_task = MagicMock()
         create_task.return_value = fake_task
 

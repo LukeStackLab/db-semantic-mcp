@@ -1,21 +1,22 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
-import pytest
 import aiosqlite
+import pytest
 
 from sqlserver_semantic_mcp.config import get_config, reset_config
 from sqlserver_semantic_mcp.infrastructure.cache import revalidation
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
-    StructuralSnapshot, compute_object_hash,
-)
 from sqlserver_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints
 from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
-    get_object_definition, upsert_object_definition,
+    get_object_definition,
+    upsert_object_definition,
 )
 from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-
+from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    StructuralSnapshot,
+    compute_object_hash,
+)
 
 MOD = "sqlserver_semantic_mcp.infrastructure.cache.revalidation"
 
@@ -47,12 +48,13 @@ async def _seed_baseline(cfg, fps: SchemaFingerprints) -> None:
     from sqlserver_semantic_mcp.infrastructure.cache.probe import (
         write_fingerprints,
     )
+
     await init_store(cfg.cache_path)
     async with aiosqlite.connect(cfg.cache_path) as db:
         await write_fingerprints(db, cfg.mssql_database, fps)
         await db.execute(
             "INSERT OR REPLACE INTO schema_version VALUES (?,?,?,?,?)",
-            (cfg.mssql_database, "h", "o", "c", datetime.now(timezone.utc).isoformat()),
+            (cfg.mssql_database, "h", "o", "c", datetime.now(UTC).isoformat()),
         )
         await db.commit()
 
@@ -62,8 +64,10 @@ async def test_no_drift_skips_warmup(cfg):
     fps = _fps(tables={("dbo", "Users"): "fp1"})
     await _seed_baseline(cfg, fps)
 
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fps), \
-         patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup:
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fps),
+        patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup,
+    ):
         result = await revalidation.revalidate_if_stale(cfg)
 
     warmup.assert_not_awaited()
@@ -74,14 +78,23 @@ async def test_no_drift_skips_warmup(cfg):
 @pytest.mark.asyncio
 async def test_drift_triggers_warmup_and_dependency_cascade(cfg):
     objects = [("dbo", "vw_Users", "VIEW")]
-    await _seed_baseline(cfg, _fps(
-        tables={("dbo", "Users"): "fp-old"},
-        objects={("dbo", "vw_Users", "V"): "fp-v"},
-    ))
+    await _seed_baseline(
+        cfg,
+        _fps(
+            tables={("dbo", "Users"): "fp-old"},
+            objects={("dbo", "vw_Users", "V"): "fp-v"},
+        ),
+    )
     # vw_Users analysis is currently ready; Users will change underneath it
     await upsert_object_definition(
-        cfg.cache_path, "testdb", "dbo", "vw_Users", "VIEW",
-        object_hash=compute_object_hash(objects), status="ready", definition="CREATE VIEW ...",
+        cfg.cache_path,
+        "testdb",
+        "dbo",
+        "vw_Users",
+        "VIEW",
+        object_hash=compute_object_hash(objects),
+        status="ready",
+        definition="CREATE VIEW ...",
     )
 
     fresh = _fps(
@@ -89,11 +102,22 @@ async def test_drift_triggers_warmup_and_dependency_cascade(cfg):
         objects={("dbo", "vw_Users", "V"): "fp-v"},
         dependents={("dbo", "Users"): [("dbo", "vw_Users")]},
     )
-    snapshot = StructuralSnapshot(tables=[("dbo", "Users")], columns=[], primary_keys=[],
-                                  foreign_keys=[], indexes=[], objects=objects, comments=[])
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fresh), \
-         patch("sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot), \
-         patch(f"{MOD}.warmup_structural_cache", wraps=revalidation.warmup_structural_cache) as warmup:
+    snapshot = StructuralSnapshot(
+        tables=[("dbo", "Users")],
+        columns=[],
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=objects,
+        comments=[],
+    )
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fresh),
+        patch(
+            "sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
+        ),
+        patch(f"{MOD}.warmup_structural_cache", wraps=revalidation.warmup_structural_cache) as warmup,
+    ):
         result = await revalidation.revalidate_if_stale(cfg)
 
     warmup.assert_awaited_once_with(cfg, fingerprints=fresh)
@@ -101,7 +125,11 @@ async def test_drift_triggers_warmup_and_dependency_cascade(cfg):
     assert result["tables_changed"] == 1
     assert result["objects_marked_dirty"] == 1
     obj = await get_object_definition(
-        cfg.cache_path, "testdb", "dbo", "vw_Users", "VIEW",
+        cfg.cache_path,
+        "testdb",
+        "dbo",
+        "vw_Users",
+        "VIEW",
     )
     assert obj["status"] == "dirty"
 
@@ -109,24 +137,41 @@ async def test_drift_triggers_warmup_and_dependency_cascade(cfg):
 @pytest.mark.asyncio
 async def test_changed_view_body_marks_object_dirty(cfg):
     objects = [("dbo", "vw_X", "VIEW")]
-    await _seed_baseline(cfg, _fps(
-        objects={("dbo", "vw_X", "V"): "old-def"},
-    ))
+    await _seed_baseline(
+        cfg,
+        _fps(
+            objects={("dbo", "vw_X", "V"): "old-def"},
+        ),
+    )
     await upsert_object_definition(
-        cfg.cache_path, "testdb", "dbo", "vw_X", "VIEW",
-        object_hash=compute_object_hash(objects), status="ready",
+        cfg.cache_path,
+        "testdb",
+        "dbo",
+        "vw_X",
+        "VIEW",
+        object_hash=compute_object_hash(objects),
+        status="ready",
     )
     fresh = _fps(objects={("dbo", "vw_X", "V"): "new-def"})
-    snapshot = StructuralSnapshot(tables=[], columns=[], primary_keys=[], foreign_keys=[],
-                                  indexes=[], objects=objects, comments=[])
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fresh), \
-         patch("sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot):
+    snapshot = StructuralSnapshot(
+        tables=[], columns=[], primary_keys=[], foreign_keys=[], indexes=[], objects=objects, comments=[]
+    )
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fresh),
+        patch(
+            "sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
+        ),
+    ):
         result = await revalidation.revalidate_if_stale(cfg)
 
     assert result["objects_changed"] == 1
     assert result["objects_marked_dirty"] == 1
     obj = await get_object_definition(
-        cfg.cache_path, "testdb", "dbo", "vw_X", "VIEW",
+        cfg.cache_path,
+        "testdb",
+        "dbo",
+        "vw_X",
+        "VIEW",
     )
     assert obj["status"] == "dirty"
 
@@ -135,8 +180,10 @@ async def test_changed_view_body_marks_object_dirty(cfg):
 async def test_missing_baseline_warms_up_without_dirty_marks(cfg):
     await init_store(cfg.cache_path)
     fresh = _fps(tables={("dbo", "Users"): "fp"})
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fresh), \
-         patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup:
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fresh),
+        patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup,
+    ):
         result = await revalidation.revalidate_if_stale(cfg)
 
     warmup.assert_awaited_once()
@@ -149,8 +196,10 @@ async def test_throttle_skips_until_interval_elapses(cfg):
     fps = _fps(tables={("dbo", "Users"): "fp"})
     await _seed_baseline(cfg, fps)
 
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fps) as fetch, \
-         patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})):
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fps) as fetch,
+        patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})),
+    ):
         first = await revalidation.revalidate_if_stale(cfg)
         second = await revalidation.revalidate_if_stale(cfg)
 
@@ -166,8 +215,10 @@ async def test_probe_failure_is_swallowed_and_throttled(cfg):
     def boom(_cfg):
         raise ConnectionError("db down")
 
-    with patch(f"{MOD}.fetch_fingerprints", side_effect=boom) as fetch, \
-         patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup:
+    with (
+        patch(f"{MOD}.fetch_fingerprints", side_effect=boom) as fetch,
+        patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup,
+    ):
         result = await revalidation.revalidate_if_stale(cfg)
         again = await revalidation.revalidate_if_stale(cfg)
 
@@ -215,8 +266,13 @@ async def test_note_refreshed_pushes_window(cfg):
 @pytest.mark.parametrize("captured_at", [None, "invalid capture time"])
 def test_merge_preserves_unknown_snapshot_identity(cfg, captured_at):
     metadata = {"hit": True, "captured_at": captured_at, "stale": True}
-    current = {"captured_at": datetime.now(timezone.utc).isoformat(), "age_seconds": 0,
-               "stale": False, "refreshing": True, "refresh_failed": True}
+    current = {
+        "captured_at": datetime.now(UTC).isoformat(),
+        "age_seconds": 0,
+        "stale": False,
+        "refreshing": True,
+        "refresh_failed": True,
+    }
     merged = revalidation.merge_cache_metadata(cfg, metadata, current)
     assert merged["captured_at"] == captured_at
     assert merged["age_seconds"] is None
@@ -226,17 +282,23 @@ def test_merge_preserves_unknown_snapshot_identity(cfg, captured_at):
 
 
 def test_merge_preserves_compacted_unknown_snapshot_identity(cfg):
-    merged = revalidation.merge_cache_metadata(cfg, {"hit": True, "stale": True},
-        {"captured_at": datetime.now(timezone.utc).isoformat(), "age_seconds": 0, "stale": False})
+    merged = revalidation.merge_cache_metadata(
+        cfg,
+        {"hit": True, "stale": True},
+        {"captured_at": datetime.now(UTC).isoformat(), "age_seconds": 0, "stale": False},
+    )
     assert merged["captured_at"] is None
     assert merged["age_seconds"] is None
     assert merged["stale"] is True
 
 
 def test_merge_recovers_compacted_fresh_snapshot_flag(cfg):
-    captured_at = datetime.now(timezone.utc).isoformat()
-    merged = revalidation.merge_cache_metadata(cfg, {"hit": True, "captured_at": captured_at},
-        {"captured_at": "older unrelated snapshot", "age_seconds": None, "stale": True})
+    captured_at = datetime.now(UTC).isoformat()
+    merged = revalidation.merge_cache_metadata(
+        cfg,
+        {"hit": True, "captured_at": captured_at},
+        {"captured_at": "older unrelated snapshot", "age_seconds": None, "stale": True},
+    )
     assert merged["captured_at"] == captured_at
     assert merged["stale"] is False
     assert merged["age_seconds"] is not None
@@ -245,6 +307,7 @@ def test_merge_recovers_compacted_fresh_snapshot_flag(cfg):
 @pytest.mark.asyncio
 async def test_many_dispatches_share_exactly_one_background_task(cfg):
     from threading import Event
+
     entered, release = Event(), Event()
     fps = _fps(tables={("dbo", "Users"): "fp"})
     await _seed_baseline(cfg, fps)
@@ -280,12 +343,14 @@ async def test_many_dispatches_share_exactly_one_background_task(cfg):
 async def test_comments_only_snapshot_expiry_forces_refresh(cfg):
     fps = _fps(tables={("dbo", "Users"): "same-schema"})
     await _seed_baseline(cfg, fps)
-    old = (datetime.now(timezone.utc) - timedelta(seconds=cfg.schema_cache_ttl_s + 1)).isoformat()
+    old = (datetime.now(UTC) - timedelta(seconds=cfg.schema_cache_ttl_s + 1)).isoformat()
     async with aiosqlite.connect(cfg.cache_path) as db:
         await db.execute("UPDATE schema_version SET captured_at=?", (old,))
         await db.commit()
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fps), \
-         patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup:
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fps),
+        patch(f"{MOD}.warmup_structural_cache", AsyncMock(return_value={})) as warmup,
+    ):
         result = await revalidation.revalidate_if_stale(cfg)
     warmup.assert_awaited_once_with(cfg, fingerprints=fps)
     assert result["tables_changed"] == 0
@@ -297,12 +362,14 @@ async def test_comments_only_snapshot_expiry_forces_refresh(cfg):
 async def test_failed_expired_snapshot_stays_stale_and_keeps_capture_time(cfg):
     fps = _fps(tables={("dbo", "Users"): "same"})
     await _seed_baseline(cfg, fps)
-    old = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    old = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     async with aiosqlite.connect(cfg.cache_path) as db:
         await db.execute("UPDATE schema_version SET captured_at=?", (old,))
         await db.commit()
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fps), \
-         patch(f"{MOD}.warmup_structural_cache", AsyncMock(side_effect=ConnectionError("down"))):
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fps),
+        patch(f"{MOD}.warmup_structural_cache", AsyncMock(side_effect=ConnectionError("down"))),
+    ):
         assert await revalidation.revalidate_if_stale(cfg) is None
     freshness = await revalidation.cache_freshness(cfg)
     assert freshness["captured_at"] == old
@@ -314,18 +381,28 @@ async def test_failed_expired_snapshot_stays_stale_and_keeps_capture_time(cfg):
 @pytest.mark.asyncio
 async def test_comments_only_expiry_updates_persisted_descriptions(cfg):
     from sqlserver_semantic_mcp.infrastructure.cache.structural import StructuralSnapshot, write_structural_snapshot
+
     fps = _fps(tables={("dbo", "Users"): "unchanged"})
     await init_store(cfg.cache_path)
     base = dict(tables=[("dbo", "Users")], columns=[], primary_keys=[], foreign_keys=[], indexes=[], objects=[])
-    await write_structural_snapshot(cfg.cache_path, "testdb", StructuralSnapshot(
-        **base, comments=[("dbo", "Users", "", "old description")]), fingerprints=fps)
-    old = (datetime.now(timezone.utc) - timedelta(seconds=cfg.schema_cache_ttl_s + 1)).isoformat()
+    await write_structural_snapshot(
+        cfg.cache_path,
+        "testdb",
+        StructuralSnapshot(**base, comments=[("dbo", "Users", "", "old description")]),
+        fingerprints=fps,
+    )
+    old = (datetime.now(UTC) - timedelta(seconds=cfg.schema_cache_ttl_s + 1)).isoformat()
     async with aiosqlite.connect(cfg.cache_path) as db:
         await db.execute("UPDATE schema_version SET captured_at=?", (old,))
         await db.commit()
     new_snapshot = StructuralSnapshot(**base, comments=[("dbo", "Users", "", "new description")])
-    with patch(f"{MOD}.fetch_fingerprints", return_value=fps), \
-         patch("sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=new_snapshot):
+    with (
+        patch(f"{MOD}.fetch_fingerprints", return_value=fps),
+        patch(
+            "sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server",
+            return_value=new_snapshot,
+        ),
+    ):
         result = await revalidation.revalidate_if_stale(cfg)
     assert result["snapshot_expired"] is True
     assert result["tables_changed"] == 0
@@ -460,7 +537,9 @@ async def test_cancelled_manual_waiter_does_not_cancel_shared_snapshot(cfg, monk
 @pytest.mark.asyncio
 async def test_cache_refresh_tool_uses_shared_manual_entry_point(cfg, monkeypatch):
     from types import SimpleNamespace
+
     from sqlserver_semantic_mcp.server.tools import cache
+
     refresh = AsyncMock(return_value={"structural_hash": "shared"})
     direct = AsyncMock(return_value={"structural_hash": "bypassed"})
     monkeypatch.setattr(revalidation, "refresh_now", refresh, raising=False)

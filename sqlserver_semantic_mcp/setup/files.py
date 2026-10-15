@@ -1,9 +1,10 @@
 """Atomic, conflict-aware writes for user configuration."""
+
 import os
 import sys
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -53,12 +54,14 @@ def _write_lock(path: Path):
     try:
         if os.name == "nt":
             import msvcrt
+
             if os.fstat(fd).st_size == 0:
                 os.write(fd, b"\0")
             os.lseek(fd, 0, os.SEEK_SET)
             msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
         else:
             import fcntl
+
             fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
@@ -66,7 +69,11 @@ def _write_lock(path: Path):
 
 
 def atomic_write(
-    path: Path, data: bytes, *, expected=_UNSET, backup: bool = False,
+    path: Path,
+    data: bytes,
+    *,
+    expected=_UNSET,
+    backup: bool = False,
     receipt: dict | None = None,
 ) -> Path | None:
     read_snapshot(path)
@@ -76,14 +83,19 @@ def atomic_write(
 
 
 def _atomic_write_locked(
-    path: Path, data: bytes, *, expected, backup: bool, receipt: dict | None,
+    path: Path,
+    data: bytes,
+    *,
+    expected,
+    backup: bool,
+    receipt: dict | None,
 ) -> Path | None:
     original = read_snapshot(path)
     if expected is not _UNSET and original != expected:
         raise SetupError(f"設定已被其他程序修改，請重新執行：{path}")
     backup_path = None
     if backup and original is not None:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         backup_path = path.with_name(f"{path.name}.bak-{stamp}-{uuid4().hex[:8]}")
         atomic_write(backup_path, original, expected=None)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -105,7 +117,9 @@ def _atomic_write_locked(
 
 
 def restore_owned(
-    path: Path, original: bytes | None, written: bytes,
+    path: Path,
+    original: bytes | None,
+    written: bytes,
     identity: tuple[int, int] | None,
 ) -> bool:
     """Restore only our own inode, under the same lock as normal writes."""

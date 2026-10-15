@@ -1,10 +1,12 @@
 import os
+
 import pytest
 
 from sqlserver_semantic_mcp.config import get_config, reset_config
 from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
 from sqlserver_semantic_mcp.infrastructure.cache.structural import (
-    warmup_structural_cache, read_schema_version,
+    read_schema_version,
+    warmup_structural_cache,
 )
 
 pytestmark = pytest.mark.integration

@@ -2,16 +2,33 @@
 
 See docs/superpowers/specs/2026-04-19-p0-token-optimization-design.md for rules.
 """
+
 from typing import Any
 
-NULLABLE_FALSE_KEEP: frozenset[str] = frozenset({
-    "is_nullable", "allowed", "executed", "found", "truncated",
-    "readonly", "exceeded_cap",
-    "metadata_complete", "ambiguous", "result_complete", "rows_omitted",
-    "columns_omitted", "stale", "refreshing", "refresh_failed", "hit",
-    "definition_withheld", "dependencies_omitted", "nullable", "optional",
-    "automatic_retry_allowed",
-})
+NULLABLE_FALSE_KEEP: frozenset[str] = frozenset(
+    {
+        "is_nullable",
+        "allowed",
+        "executed",
+        "found",
+        "truncated",
+        "readonly",
+        "exceeded_cap",
+        "metadata_complete",
+        "ambiguous",
+        "result_complete",
+        "columns_omitted",
+        "stale",
+        "refreshing",
+        "refresh_failed",
+        "hit",
+        "definition_withheld",
+        "dependencies_omitted",
+        "nullable",
+        "optional",
+        "automatic_retry_allowed",
+    }
+)
 
 NULL_KEEP = frozenset({"total_row_count"})
 EMPTY_KEEP = frozenset({"rows", "sample_rows", "candidates", "column_pairs", "data"})

@@ -1,12 +1,8 @@
-from typing import Literal, Optional
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-DetailTier = Literal["brief", "standard", "full"]
-ResponseMode = Literal["summary", "rows", "sample", "count_only"]
-TokenBudgetHint = Literal["tiny", "low", "medium", "high"]
-DEFAULT_TOKEN_BUDGET_HINT: TokenBudgetHint = "medium"
 AffectedRowsPolicy = Literal["strict", "report"]
 StartupMode = Literal["full", "cache_first"]
 
@@ -20,10 +16,10 @@ class Config(BaseSettings):
     )
 
     # ---- DB connection ----
-    connection_name: Optional[str] = None
+    connection_name: str | None = None
     mssql_server: str
-    mssql_user: Optional[str] = None
-    mssql_password: Optional[str] = None
+    mssql_user: str | None = None
+    mssql_password: str | None = None
     mssql_database: str
     mssql_port: int = 1433
     mssql_windows_auth: bool = False
@@ -43,13 +39,20 @@ class Config(BaseSettings):
     background_retry_max_s: float = Field(default=60.0, gt=0.0)
 
     # ---- Policy ----
-    policy_file: Optional[str] = None
-    policy_profile: Optional[str] = None
+    policy_file: str | None = None
+    policy_profile: str | None = None
 
     # ---- Policy overrides ----
     max_rows_returned: int = Field(default=1000, ge=1)
     max_rows_affected: int = Field(default=100, ge=1)
     query_timeout: int = Field(default=30, ge=1)
+
+    # ---- Output safety (hard caps; never tiered by the caller) ----
+    # A result stops at whichever limit is reached first: row count,
+    # serialized bytes, or per-cell characters. Truncation is always reported.
+    max_response_bytes: int = Field(default=65536, ge=1024)
+    max_cell_chars: int = Field(default=2000, ge=16)
+    max_list_items: int = Field(default=500, ge=1)
 
     # ---- Tool surface ----
     # "all" is the default surface and now resolves to the full consolidated
@@ -60,12 +63,9 @@ class Config(BaseSettings):
     # ---- Metrics ----
     metrics_enabled: bool = True
 
-    # ---- v0.5 agent-oriented defaults ----
-    default_detail: DetailTier = "brief"
-    default_response_mode: ResponseMode = "summary"
-    default_token_budget_hint: TokenBudgetHint = DEFAULT_TOKEN_BUDGET_HINT
+    # ---- Agent-oriented defaults ----
     direct_execute_enabled: bool = True
-    strict_rows_affected_cap: bool = True
+    strict_rows_affected_cap: bool = False
     workflow_tools_enabled: bool = True
 
     # ---- Analyzer router ----
@@ -73,7 +73,7 @@ class Config(BaseSettings):
     intent_analyzer: Literal["regex", "ast"] = "ast"
 
 
-_config: Optional[Config] = None
+_config: Config | None = None
 
 
 def get_config() -> Config:

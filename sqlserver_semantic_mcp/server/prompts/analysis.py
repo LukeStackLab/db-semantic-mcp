@@ -1,12 +1,16 @@
 """Object / impact analysis prompts."""
+
 from __future__ import annotations
 
 from mcp.types import (
-    GetPromptResult, Prompt, PromptArgument, PromptMessage, TextContent,
+    GetPromptResult,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
+    TextContent,
 )
 
 from .registry import register_prompt
-
 
 _PROMPT = Prompt(
     name="trace_data_impact",
@@ -28,10 +32,10 @@ _PROMPT = Prompt(
 
 _BODY = """You need to understand the impact of modifying {type} {schema}.{name}. Follow the impact chain:
 
-1. `describe_object(schema={schema!r}, name={name!r}, type={type!r}, detail="standard")` — returns reads / writes / depends_on in compact form.
+1. `describe_object(schema={schema!r}, name={name!r}, type={type!r})` — returns reads / writes / depends_on in compact form.
 2. For a cheaper repeat look, read the `semantic://summary/object/{type}/{schema}.{name}` resource instead of re-calling the tool.
 
-Only request the full definition (`describe_object(schema={schema!r}, name={name!r}, type={type!r}, detail="full")`) if the summary leaves a concrete gap.
+Only request the full definition (`describe_object(schema={schema!r}, name={name!r}, type={type!r}, include_definition=true)`) if the summary leaves a concrete gap.
 """
 
 

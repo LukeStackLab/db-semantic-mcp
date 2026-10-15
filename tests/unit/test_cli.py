@@ -34,16 +34,21 @@ def test_bad_fixed_profile_fails_on_stderr_without_traceback(tmp_path, capsys):
 def test_registered_command_ignores_cwd_and_pythonpath_package_shadowing(tmp_path):
     import os
     import subprocess
+
     from sqlserver_semantic_mcp.setup.clients import server_entry
+
     fake = tmp_path / "sqlserver_semantic_mcp"
     fake.mkdir()
     (fake / "__init__.py").write_text("")
     (fake / "main.py").write_text("print('HIJACKED_PACKAGE')")
     entry = server_entry(tmp_path / "missing.json")
     result = subprocess.run(
-        [entry["command"], *entry["args"]], cwd=tmp_path,
+        [entry["command"], *entry["args"]],
+        cwd=tmp_path,
         env={**os.environ, "PYTHONPATH": str(tmp_path)},
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 1
     assert result.stdout == ""

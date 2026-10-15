@@ -59,6 +59,7 @@ def test_atomic_write_preserves_original_on_conflict_and_symlink(tmp_path):
 def test_unavailable_backend_never_echoes_secret(monkeypatch):
     def unavailable():
         raise RuntimeError("DO_NOT_ECHO")
+
     monkeypatch.setattr(credentials, "_backend", unavailable)
     with pytest.raises(CredentialError) as error:
         credentials.store_password("DO_NOT_ECHO")
@@ -78,6 +79,7 @@ def test_ancestor_symlink_is_rejected(tmp_path):
 def test_cooperating_writers_cannot_overwrite_same_snapshot(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
+
     path = tmp_path / "config.json"
     atomic_write(path, b"original")
     barrier = Barrier(2)
@@ -89,6 +91,7 @@ def test_cooperating_writers_cannot_overwrite_same_snapshot(tmp_path):
             return True
         except SetupError:
             return False
+
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(writer, [b"first", b"second"]))
     assert sum(results) == 1
@@ -97,6 +100,7 @@ def test_cooperating_writers_cannot_overwrite_same_snapshot(tmp_path):
 
 def test_rollback_never_deletes_replacement_with_identical_bytes(tmp_path):
     from sqlserver_semantic_mcp.setup.files import restore_owned
+
     path = tmp_path / "policy.json"
     receipt = {}
     atomic_write(path, b"same", expected=None, receipt=receipt)

@@ -1,4 +1,5 @@
 """Unit tests for the consolidated tool_metrics(action) tool (Task 10)."""
+
 import pytest
 
 
@@ -10,8 +11,10 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
     from sqlserver_semantic_mcp.config import reset_config
+
     reset_config()
     from sqlserver_semantic_mcp.server.app import reset_context
+
     reset_context()
 
 

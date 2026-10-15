@@ -1,4 +1,5 @@
 """End-to-end tests: _call_tool records metrics (P4)."""
+
 import pytest
 
 
@@ -13,23 +14,27 @@ def env(monkeypatch, tmp_path):
     # keep dispatcher tests hermetic: no background schema probe
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_ENABLED", "false")
     from sqlserver_semantic_mcp.config import reset_config
+
     reset_config()
 
 
 async def _call(name, args):
     from sqlserver_semantic_mcp.server.app import _call_tool
+
     return await _call_tool(name, args)
 
 
 @pytest.mark.asyncio
 async def test_successful_tool_call_records_metric(env):
+    from mcp.types import Tool
+
+    from sqlserver_semantic_mcp.config import get_config
     from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
     from sqlserver_semantic_mcp.server.app import (
-        _TOOL_REGISTRY, register_tool,
+        _TOOL_REGISTRY,
+        register_tool,
     )
-    from sqlserver_semantic_mcp.config import get_config
     from sqlserver_semantic_mcp.services import metrics_service
-    from mcp.types import Tool
 
     cfg = get_config()
     await init_store(cfg.cache_path)
@@ -54,13 +59,15 @@ async def test_successful_tool_call_records_metric(env):
 
 @pytest.mark.asyncio
 async def test_error_path_records_failure_metric(env):
+    from mcp.types import Tool
+
+    from sqlserver_semantic_mcp.config import get_config
     from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
     from sqlserver_semantic_mcp.server.app import (
-        _TOOL_REGISTRY, register_tool,
+        _TOOL_REGISTRY,
+        register_tool,
     )
-    from sqlserver_semantic_mcp.config import get_config
     from sqlserver_semantic_mcp.services import metrics_service
-    from mcp.types import Tool
 
     cfg = get_config()
     await init_store(cfg.cache_path)
@@ -84,15 +91,18 @@ async def test_error_path_records_failure_metric(env):
 async def test_metrics_disabled_skips_recording(env, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_METRICS_ENABLED", "false")
     from sqlserver_semantic_mcp.config import reset_config
+
     reset_config()
 
+    from mcp.types import Tool
+
+    from sqlserver_semantic_mcp.config import get_config
     from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
     from sqlserver_semantic_mcp.server.app import (
-        _TOOL_REGISTRY, register_tool,
+        _TOOL_REGISTRY,
+        register_tool,
     )
-    from sqlserver_semantic_mcp.config import get_config
     from sqlserver_semantic_mcp.services import metrics_service
-    from mcp.types import Tool
 
     cfg = get_config()
     await init_store(cfg.cache_path)
@@ -114,12 +124,14 @@ async def test_metrics_disabled_skips_recording(env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_list_response_captures_array_length(env):
+    from mcp.types import Tool
+
+    from sqlserver_semantic_mcp.config import get_config
     from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
     from sqlserver_semantic_mcp.server.app import (
-        _TOOL_REGISTRY, register_tool,
+        _TOOL_REGISTRY,
+        register_tool,
     )
-    from sqlserver_semantic_mcp.config import get_config
-    from mcp.types import Tool
 
     cfg = get_config()
     await init_store(cfg.cache_path)
@@ -135,6 +147,7 @@ async def test_list_response_captures_array_length(env):
     await _call("listy", {})
 
     import aiosqlite
+
     async with aiosqlite.connect(cfg.cache_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(

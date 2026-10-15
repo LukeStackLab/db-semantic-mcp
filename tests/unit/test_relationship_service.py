@@ -1,10 +1,14 @@
 import pytest
+
 from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
 from sqlserver_semantic_mcp.infrastructure.cache.structural import (
-    write_structural_snapshot, StructuralSnapshot,
+    StructuralSnapshot,
+    write_structural_snapshot,
 )
 from sqlserver_semantic_mcp.services.relationship_service import (
-    get_table_relationships, find_join_path, get_dependency_chain,
+    find_join_path,
+    get_dependency_chain,
+    get_table_relationships,
 )
 
 
@@ -12,13 +16,13 @@ async def _setup(tmp_path):
     db_path = str(tmp_path / "t.db")
     await init_store(db_path)
     snap = StructuralSnapshot(
-        tables=[("dbo", "Users"), ("dbo", "Orders"),
-                ("dbo", "OrderItems"), ("dbo", "Products"),
-                ("dbo", "Isolated")],
+        tables=[("dbo", "Users"), ("dbo", "Orders"), ("dbo", "OrderItems"), ("dbo", "Products"), ("dbo", "Isolated")],
         columns=[],
         primary_keys=[
-            ("dbo", "Users", "Id"), ("dbo", "Orders", "Id"),
-            ("dbo", "OrderItems", "Id"), ("dbo", "Products", "Id"),
+            ("dbo", "Users", "Id"),
+            ("dbo", "Orders", "Id"),
+            ("dbo", "OrderItems", "Id"),
+            ("dbo", "Products", "Id"),
         ],
         foreign_keys=[
             ("dbo", "Orders", "UserId", "dbo", "Users", "Id"),
@@ -46,8 +50,7 @@ async def test_outbound_and_inbound(tmp_path):
 @pytest.mark.asyncio
 async def test_find_join_path_direct(tmp_path):
     db_path = await _setup(tmp_path)
-    path = await find_join_path(db_path, "testdb",
-                                "dbo", "Orders", "dbo", "Users")
+    path = await find_join_path(db_path, "testdb", "dbo", "Orders", "dbo", "Users")
     assert path is not None
     assert len(path) == 1
     assert path[0]["from_table"] == "Orders"
@@ -57,8 +60,7 @@ async def test_find_join_path_direct(tmp_path):
 @pytest.mark.asyncio
 async def test_find_join_path_transitive(tmp_path):
     db_path = await _setup(tmp_path)
-    path = await find_join_path(db_path, "testdb",
-                                "dbo", "OrderItems", "dbo", "Users")
+    path = await find_join_path(db_path, "testdb", "dbo", "OrderItems", "dbo", "Users")
     assert path is not None
     assert len(path) == 2
 
@@ -67,8 +69,7 @@ async def test_find_join_path_transitive(tmp_path):
 async def test_find_join_path_missing(tmp_path):
     db_path = await _setup(tmp_path)
     # Isolated table has no FKs — truly unreachable
-    path = await find_join_path(db_path, "testdb",
-                                "dbo", "Users", "dbo", "Isolated")
+    path = await find_join_path(db_path, "testdb", "dbo", "Users", "dbo", "Isolated")
     assert path is None
 
 
@@ -85,18 +86,23 @@ async def test_dependency_chain(tmp_path):
 async def test_fk_graph_cache_refreshes_after_schema_change(tmp_path):
     db_path = await _setup(tmp_path)
     path = await find_join_path(
-        db_path, "testdb", "dbo", "OrderItems", "dbo", "Isolated",
+        db_path,
+        "testdb",
+        "dbo",
+        "OrderItems",
+        "dbo",
+        "Isolated",
     )
     assert path is None
 
     snap = StructuralSnapshot(
-        tables=[("dbo", "Users"), ("dbo", "Orders"),
-                ("dbo", "OrderItems"), ("dbo", "Products"),
-                ("dbo", "Isolated")],
+        tables=[("dbo", "Users"), ("dbo", "Orders"), ("dbo", "OrderItems"), ("dbo", "Products"), ("dbo", "Isolated")],
         columns=[],
         primary_keys=[
-            ("dbo", "Users", "Id"), ("dbo", "Orders", "Id"),
-            ("dbo", "OrderItems", "Id"), ("dbo", "Products", "Id"),
+            ("dbo", "Users", "Id"),
+            ("dbo", "Orders", "Id"),
+            ("dbo", "OrderItems", "Id"),
+            ("dbo", "Products", "Id"),
             ("dbo", "Isolated", "Id"),
         ],
         foreign_keys=[
@@ -112,7 +118,12 @@ async def test_fk_graph_cache_refreshes_after_schema_change(tmp_path):
     await write_structural_snapshot(db_path, "testdb", snap)
 
     refreshed = await find_join_path(
-        db_path, "testdb", "dbo", "OrderItems", "dbo", "Isolated",
+        db_path,
+        "testdb",
+        "dbo",
+        "OrderItems",
+        "dbo",
+        "Isolated",
     )
     assert refreshed is not None
     assert [edge["to_table"] for edge in refreshed] == ["Orders", "Users", "Isolated"]

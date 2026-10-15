@@ -1,4 +1,5 @@
 """Hermetic checks for the synchronous DB worker's concurrency/lifetime."""
+
 import asyncio
 from threading import Event, Lock
 from types import SimpleNamespace
@@ -118,6 +119,7 @@ async def test_worker_timings_do_not_include_inputs():
 @pytest.mark.asyncio
 async def test_shutdown_drains_lifecycles_and_stops_threads():
     from sqlserver_semantic_mcp.infrastructure import workers
+
     cfg = SimpleNamespace(db_worker_limit=1)
     entered, release, closed = Event(), Event(), Event()
 

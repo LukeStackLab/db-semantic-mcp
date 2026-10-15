@@ -1,12 +1,19 @@
 from pathlib import Path
-import aiosqlite
 
+import aiosqlite
 
 SCHEMA_TABLES = [
     "schema_version",
-    "sc_tables", "sc_columns", "sc_primary_keys", "sc_foreign_keys",
-    "sc_indexes", "sc_objects", "sc_comments", "sc_fingerprints",
-    "sem_table_analysis", "sem_object_definitions",
+    "sc_tables",
+    "sc_columns",
+    "sc_primary_keys",
+    "sc_foreign_keys",
+    "sc_indexes",
+    "sc_objects",
+    "sc_comments",
+    "sc_fingerprints",
+    "sem_table_analysis",
+    "sem_object_definitions",
 ]
 
 SCHEMA_DDL = """
@@ -153,9 +160,6 @@ CREATE TABLE IF NOT EXISTS tool_metrics (
     array_length       INTEGER,
     fields_returned    INTEGER,
     route_type         TEXT,
-    detail             TEXT,
-    response_mode      TEXT,
-    token_budget_hint  TEXT,
     was_direct_execute INTEGER,
     bundle_used        INTEGER,
     next_action        TEXT,
@@ -167,28 +171,30 @@ CREATE INDEX IF NOT EXISTS idx_tool_metrics_name
 
 
 async def _migrate(db: aiosqlite.Connection) -> None:
-    # v0.6: per-table structural_hash on sc_tables (pre-existing cache files)
+    # per-table structural_hash on sc_tables (pre-existing cache files)
     cur = await db.execute("PRAGMA table_info(sc_tables)")
     cols = {row[1] for row in await cur.fetchall()}
     if "structural_hash" not in cols:
-        await db.execute(
-            "ALTER TABLE sc_tables "
-            "ADD COLUMN structural_hash TEXT NOT NULL DEFAULT ''"
-        )
+        await db.execute("ALTER TABLE sc_tables ADD COLUMN structural_hash TEXT NOT NULL DEFAULT ''")
 
     additions = {
         "sc_columns": {
-            "numeric_precision": "INTEGER", "numeric_scale": "INTEGER",
-            "datetime_precision": "INTEGER", "collation_name": "TEXT",
+            "numeric_precision": "INTEGER",
+            "numeric_scale": "INTEGER",
+            "datetime_precision": "INTEGER",
+            "collation_name": "TEXT",
         },
         "sc_foreign_keys": {
-            "constraint_id": "INTEGER", "constraint_name": "TEXT",
-            "constraint_column_id": "INTEGER", "is_disabled": "INTEGER",
+            "constraint_id": "INTEGER",
+            "constraint_name": "TEXT",
+            "constraint_column_id": "INTEGER",
+            "is_disabled": "INTEGER",
             "is_not_trusted": "INTEGER",
         },
         "sc_indexes": {"has_filter": "INTEGER", "is_disabled": "INTEGER"},
         "sem_table_analysis": {
-            "attempt_count": "INTEGER NOT NULL DEFAULT 0", "next_retry_at": "TEXT",
+            "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+            "next_retry_at": "TEXT",
             "last_attempt_at": "TEXT",
         },
     }
@@ -206,9 +212,6 @@ async def init_store(db_path: str) -> None:
         await db.executescript(SCHEMA_DDL)
         await _migrate(db)
         from ...services.metrics_service import migrate_metrics
+
         await migrate_metrics(db)
         await db.commit()
-
-
-def connection(db_path: str):
-    return aiosqlite.connect(db_path)

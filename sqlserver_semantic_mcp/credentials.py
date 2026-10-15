@@ -1,4 +1,5 @@
 """Credentials remain outside connection and MCP client configuration."""
+
 import json
 import os
 import re
@@ -11,11 +12,12 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from .setup.files import SetupError, atomic_write, read_snapshot
 
-
 SERVICE = "sqlserver-semantic-mcp"
 _SECURE_MODULES = (
-    "keyring.backends.macOS", "keyring.backends.Windows",
-    "keyring.backends.SecretService", "keyring.backends.kwallet",
+    "keyring.backends.macOS",
+    "keyring.backends.Windows",
+    "keyring.backends.SecretService",
+    "keyring.backends.kwallet",
 )
 
 
@@ -41,6 +43,7 @@ class CredentialReference(BaseModel):
 
 def _backend():
     import keyring
+
     backend = keyring.get_keyring()
     candidates = getattr(backend, "backends", [backend])
     for candidate in candidates:
@@ -53,7 +56,7 @@ def store_password(password: str) -> CredentialReference:
     key = uuid4().hex
     try:
         _backend().set_password(SERVICE, key, password)
-    except Exception:
+    except Exception:  # noqa: BLE001 (keyring access is best-effort)
         raise CredentialError("無法將密碼存入系統憑證庫。") from None
     return CredentialReference(storage="keyring", key=key)
 
@@ -63,7 +66,11 @@ def private_password_bytes(password: str) -> bytes:
 
 
 def store_private_password(
-    directory: Path, password: str, *, expected=..., receipt: dict | None = None,
+    directory: Path,
+    password: str,
+    *,
+    expected=...,
+    receipt: dict | None = None,
 ) -> CredentialReference:
     if os.name == "nt":
         raise CredentialError("Windows 請使用系統憑證庫或密碼環境變數。")
@@ -101,7 +108,7 @@ def read_password(reference: CredentialReference, directory: Path) -> str:
             password = json.loads(data)["password"]
     except CredentialError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 (keyring access is best-effort)
         raise CredentialError("無法讀取配置指定的密碼。請重新執行 setup。") from None
     if not isinstance(password, str) or not password:
         raise CredentialError("找不到配置指定的密碼。請重新執行 setup 或設定指定的環境變數。")
@@ -112,5 +119,5 @@ def delete_password(reference: CredentialReference | None) -> None:
     if reference is not None and reference.storage == "keyring":
         try:
             _backend().delete_password(SERVICE, reference.key)
-        except Exception:
+        except Exception:  # noqa: BLE001 (keyring access is best-effort)
             pass

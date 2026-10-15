@@ -1,4 +1,5 @@
-"""Unit tests for bundle_context_for_next_step (v0.5)."""
+"""Unit tests for bundle_context_for_next_step."""
+
 import pytest
 
 from sqlserver_semantic_mcp.config import get_config, reset_config
@@ -21,10 +22,10 @@ async def cfg(monkeypatch, tmp_path):
 
 async def _seed_table(cfg, schema: str, table: str, columns: list[tuple]):
     import aiosqlite
+
     async with aiosqlite.connect(cfg.cache_path) as db:
         await db.execute(
-            "INSERT INTO sc_tables(database_name, schema_name, table_name) "
-            "VALUES (?,?,?)",
+            "INSERT INTO sc_tables(database_name, schema_name, table_name) VALUES (?,?,?)",
             (cfg.mssql_database, schema, table),
         )
         for ord_pos, (name, dtype, nullable) in enumerate(columns, start=1):
@@ -32,12 +33,10 @@ async def _seed_table(cfg, schema: str, table: str, columns: list[tuple]):
                 "INSERT INTO sc_columns(database_name, schema_name, table_name, "
                 "column_name, data_type, max_length, is_nullable, "
                 "column_default, ordinal_position) VALUES (?,?,?,?,?,?,?,?,?)",
-                (cfg.mssql_database, schema, table, name, dtype, None,
-                 1 if nullable else 0, None, ord_pos),
+                (cfg.mssql_database, schema, table, name, dtype, None, 1 if nullable else 0, None, ord_pos),
             )
         await db.execute(
-            "INSERT INTO sc_primary_keys(database_name, schema_name, table_name, "
-            "column_name) VALUES (?,?,?,?)",
+            "INSERT INTO sc_primary_keys(database_name, schema_name, table_name, column_name) VALUES (?,?,?,?)",
             (cfg.mssql_database, schema, table, columns[0][0]),
         )
         await db.commit()
@@ -45,15 +44,21 @@ async def _seed_table(cfg, schema: str, table: str, columns: list[tuple]):
 
 @pytest.mark.asyncio
 async def test_bundle_joining_returns_compact_summary(cfg):
-    await _seed_table(cfg, "sales", "orders", [
-        ("order_id", "int", False),
-        ("customer_id", "int", False),
-        ("total", "decimal", True),
-    ])
+    await _seed_table(
+        cfg,
+        "sales",
+        "orders",
+        [
+            ("order_id", "int", False),
+            ("customer_id", "int", False),
+            ("total", "decimal", True),
+        ],
+    )
 
     env = await bundle_context_for_next_step(
         [{"kind": "table", "schema": "sales", "table": "orders"}],
-        goal="joining", cfg=cfg,
+        goal="joining",
+        cfg=cfg,
     )
     assert env["kind"] == "bundle_context_for_next_step"
     assert env["bundle_key"] == "joining"
@@ -67,7 +72,9 @@ async def test_bundle_joining_returns_compact_summary(cfg):
 @pytest.mark.asyncio
 async def test_bundle_unknown_goal_returns_error_payload(cfg):
     env = await bundle_context_for_next_step(
-        [], goal="not-a-thing", cfg=cfg,
+        [],
+        goal="not-a-thing",
+        cfg=cfg,
     )
     assert "error" in env["data"]
     assert "supported_goals" in env["data"]

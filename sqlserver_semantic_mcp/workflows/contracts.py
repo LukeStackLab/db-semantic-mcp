@@ -3,11 +3,11 @@
 All workflow tools return structured envelopes so a downstream agent
 knows what to do next without re-parsing payloads.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
-
+from typing import Any, Literal
 
 Route = Literal[
     "direct_execute",
@@ -41,16 +41,16 @@ class ToolEnvelope:
     ``data`` carries the tool-specific payload. Top-level fields are the
     agent-visible routing cues.
     """
+
     kind: str
-    detail: str = "brief"
-    confidence: Optional[float] = None
-    next_action: Optional[str] = None
-    recommended_tool: Optional[str] = None
-    bundle_key: Optional[str] = None
+    confidence: float | None = None
+    next_action: str | None = None
+    recommended_tool: str | None = None
+    bundle_key: str | None = None
     data: Any = None
 
     def to_dict(self) -> dict:
-        out: dict[str, Any] = {"kind": self.kind, "detail": self.detail}
+        out: dict[str, Any] = {"kind": self.kind}
         if self.confidence is not None:
             out["confidence"] = self.confidence
         if self.next_action is not None:

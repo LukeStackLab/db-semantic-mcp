@@ -1,18 +1,24 @@
 """Prompt registry wired up against ``server.app.app``."""
+
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from mcp.types import GetPromptResult, Prompt, PromptArgument
 
-from ..app import app, _TOOL_REGISTRY
-
+from ..app import _TOOL_REGISTRY, app
 
 Handler = Callable[[dict[str, Any]], Awaitable[GetPromptResult]]
 _REGISTRY: dict[str, tuple[Prompt, Handler]] = {}
 _REQUIRED_TOOLS = {
     "safe_sql_execution": {"plan_or_execute_query"},
-    "discover_tables_for_business_question": {"discover_relevant_tables", "describe_table", "find_join_path", "plan_or_execute_query"},
+    "discover_tables_for_business_question": {
+        "discover_relevant_tables",
+        "describe_table",
+        "find_join_path",
+        "plan_or_execute_query",
+    },
     "trace_data_impact": {"describe_object"},
 }
 
@@ -40,7 +46,7 @@ async def _get_prompt(name: str, arguments: dict | None = None) -> GetPromptResu
 
 def register_prompts() -> None:
     """Import prompt modules to trigger their registrations."""
-    from . import execution, discovery, analysis  # noqa: F401
+    from . import analysis, discovery, execution  # noqa: F401
 
     execution.register()
     discovery.register()

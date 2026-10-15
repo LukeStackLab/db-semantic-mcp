@@ -1,12 +1,13 @@
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 from ..config import Config, get_config
 from .models import (
-    PolicyFile, PolicyProfile, PolicyOperations,
-    PolicyConstraints, PolicyScope,
+    PolicyConstraints,
+    PolicyFile,
+    PolicyOperations,
+    PolicyProfile,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ def builtin_readonly() -> PolicyProfile:
     )
 
 
-def select_profile(pf: PolicyFile, override: Optional[str]) -> PolicyProfile:
+def select_profile(pf: PolicyFile, override: str | None) -> PolicyProfile:
     name = override or pf.active_profile
     if name not in pf.profiles:
         raise ValueError(f"Profile '{name}' not found in policy file")
@@ -44,7 +45,8 @@ def apply_env_overrides(profile: PolicyProfile, cfg: Config) -> PolicyProfile:
 
 
 def load_policy_from_file(
-    path: Optional[str], profile_override: Optional[str],
+    path: str | None,
+    profile_override: str | None,
 ) -> PolicyProfile:
     if not path:
         logger.warning("No policy file specified; using built-in readonly profile")
@@ -66,14 +68,14 @@ def load_policy_from_file(
 
     try:
         pf = PolicyFile.model_validate(raw)
-    except Exception:
+    except Exception:  # noqa: BLE001 (controlled error replacement)
         raise ValueError("Explicit policy file failed schema validation; refusing to load") from None
 
     # Profile-override errors still raise (caller misconfiguration)
     return select_profile(pf, profile_override)
 
 
-def load_active_policy(cfg: Optional[Config] = None) -> PolicyProfile:
+def load_active_policy(cfg: Config | None = None) -> PolicyProfile:
     cfg = cfg or get_config()
     base = load_policy_from_file(cfg.policy_file, cfg.policy_profile)
     return apply_env_overrides(base, cfg)

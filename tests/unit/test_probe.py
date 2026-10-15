@@ -1,8 +1,8 @@
-import pytest
-import aiosqlite
 from unittest.mock import MagicMock
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
+import aiosqlite
+import pytest
+
 from sqlserver_semantic_mcp.infrastructure.cache.probe import (
     SchemaFingerprints,
     diff_fingerprints,
@@ -10,6 +10,7 @@ from sqlserver_semantic_mcp.infrastructure.cache.probe import (
     read_fingerprints,
     write_fingerprints,
 )
+from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
 
 
 def _fps(tables=None, objects=None, dependents=None) -> SchemaFingerprints:
@@ -50,7 +51,9 @@ def test_diff_added_and_removed():
 
 def test_diff_summary_counts():
     diff = diff_fingerprints(
-        {("dbo", "A"): "1"}, {}, _fps({("dbo", "A"): "2"}),
+        {("dbo", "A"): "1"},
+        {},
+        _fps({("dbo", "A"): "2"}),
     )
     assert diff.summary()["tables_changed"] == 1
     assert diff.summary()["objects_changed"] == 0
@@ -58,20 +61,23 @@ def test_diff_summary_counts():
 
 def test_fetch_fingerprints_assembles_maps():
     from sqlserver_semantic_mcp.config import Config
+
     cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
     conn = MagicMock()
-    fetch_results = iter([
-        # PROBE_COLUMN_FINGERPRINTS: (object_id, col_fp, col_count)
-        [(1, 111, 3), (2, 222, 2)],
-        # PROBE_INDEX_FINGERPRINTS: (object_id, idx_fp, idx_count)
-        [(1, 555, 1)],
-        # PROBE_TABLES: (object_id, schema, name, modify_date)
-        [(1, "dbo", "Users", "2026-01-01T00:00:00")],
-        # PROBE_MODULES: (object_id, schema, name, type, modify_date, def_hash)
-        [(2, "dbo", "vw_Users", "V", "2026-01-02T00:00:00", "DEADBEEF")],
-        # PROBE_DEPENDENCIES: (referencing_id, referenced_id)
-        [(2, 1)],
-    ])
+    fetch_results = iter(
+        [
+            # PROBE_COLUMN_FINGERPRINTS: (object_id, col_fp, col_count)
+            [(1, 111, 3), (2, 222, 2)],
+            # PROBE_INDEX_FINGERPRINTS: (object_id, idx_fp, idx_count)
+            [(1, 555, 1)],
+            # PROBE_TABLES: (object_id, schema, name, modify_date)
+            [(1, "dbo", "Users", "2026-01-01T00:00:00")],
+            # PROBE_MODULES: (object_id, schema, name, type, modify_date, def_hash)
+            [(2, "dbo", "vw_Users", "V", "2026-01-02T00:00:00", "DEADBEEF")],
+            # PROBE_DEPENDENCIES: (referencing_id, referenced_id)
+            [(2, 1)],
+        ]
+    )
 
     def cursor_factory():
         c = MagicMock()
@@ -91,15 +97,18 @@ def test_fetch_fingerprints_assembles_maps():
 
 def test_fetch_fingerprints_handles_missing_parts():
     from sqlserver_semantic_mcp.config import Config
+
     cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
     conn = MagicMock()
-    fetch_results = iter([
-        [],                                     # columns
-        [],                                     # indexes
-        [(1, "dbo", "Empty", "2026-01-01")],    # tables
-        [(2, "dbo", "fn_X", "FN", "2026-01-01", None)],  # encrypted module
-        [],                                     # dependencies
-    ])
+    fetch_results = iter(
+        [
+            [],  # columns
+            [],  # indexes
+            [(1, "dbo", "Empty", "2026-01-01")],  # tables
+            [(2, "dbo", "fn_X", "FN", "2026-01-01", None)],  # encrypted module
+            [],  # dependencies
+        ]
+    )
 
     def cursor_factory():
         c = MagicMock()

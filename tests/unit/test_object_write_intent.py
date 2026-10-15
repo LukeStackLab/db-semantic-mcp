@@ -1,4 +1,5 @@
 """Tests for read/write split on object definitions (P3)."""
+
 from sqlserver_semantic_mcp.services.object_service import split_read_write
 
 
@@ -21,22 +22,14 @@ def test_update_procedure_has_writes():
 
 
 def test_procedure_with_select_and_update():
-    sql = (
-        "CREATE PROCEDURE p AS "
-        "SELECT * FROM dbo.A; "
-        "UPDATE dbo.B SET x=1 WHERE y=2; "
-    )
+    sql = "CREATE PROCEDURE p AS SELECT * FROM dbo.A; UPDATE dbo.B SET x=1 WHERE y=2; "
     reads, writes = split_read_write(sql)
     assert set(reads) >= {"dbo.A"}
     assert set(writes) == {"dbo.B"}
 
 
 def test_update_with_join_separates_target_from_source():
-    sql = (
-        "CREATE PROCEDURE p AS "
-        "UPDATE dbo.Orders SET status='x' "
-        "FROM dbo.Orders o JOIN dbo.Users u ON o.UserId=u.Id"
-    )
+    sql = "CREATE PROCEDURE p AS UPDATE dbo.Orders SET status='x' FROM dbo.Orders o JOIN dbo.Users u ON o.UserId=u.Id"
     reads, writes = split_read_write(sql)
     # dbo.Orders is the write target; Users joined is a read source.
     # (Orders may appear in both since it's self-referenced via FROM — that's fine,

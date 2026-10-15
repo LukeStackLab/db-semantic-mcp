@@ -1,29 +1,25 @@
 """Prompts for the direct-execution path."""
+
 from __future__ import annotations
 
 from mcp.types import (
-    GetPromptResult, Prompt, PromptArgument, PromptMessage, TextContent,
+    GetPromptResult,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
+    TextContent,
 )
 
 from .registry import register_prompt
 
-
 _PROMPT = Prompt(
     name="safe_sql_execution",
-    description=(
-        "Execute an agent-authored SQL in the shortest safe path, using the "
-        "v0.5 plan_or_execute_query entry."
-    ),
+    description="Execute an agent-authored SQL in the shortest safe path via plan_or_execute_query.",
     arguments=[
         PromptArgument(
             name="query",
             description="SQL the agent already believes is ready to run.",
             required=True,
-        ),
-        PromptArgument(
-            name="return_mode",
-            description="summary | rows | sample | count_only (default: summary).",
-            required=False,
         ),
     ],
 )
@@ -31,8 +27,8 @@ _PROMPT = Prompt(
 
 _BODY = """You have a SQL query already drafted. Prefer the shortest safe path:
 
-1. Call `plan_or_execute_query` with mode="auto" and return_mode={return_mode!r}.
-2. If the response has `path="direct_execute"` and `executed=true`, you are done — present the rows / summary as-is.
+1. Call `plan_or_execute_query` with mode="auto".
+2. If the response has `path="direct_execute"` and `executed=true`, you are done — present the rows as-is. If `truncated` is true, narrow the query (fewer columns, WHERE, TOP, or aggregate) instead of asking for more rows.
 3. If the response has `path="direct_validate"` and `allowed=false`, read `reason` and either:
    - revise the SQL, or
    - call `plan_or_execute_query` with mode="validate" for a fuller risk breakdown before revising.
@@ -47,8 +43,7 @@ Query:
 
 async def _handler(arguments: dict) -> GetPromptResult:
     query = arguments.get("query", "")
-    return_mode = arguments.get("return_mode") or "summary"
-    text = _BODY.format(query=query, return_mode=return_mode)
+    text = _BODY.format(query=query)
     return GetPromptResult(
         description="Shortest safe path for SQL-ready agents.",
         messages=[

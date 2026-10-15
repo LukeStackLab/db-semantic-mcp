@@ -1,7 +1,6 @@
 """Route the agent's request down the shortest safe path."""
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from ..policy.analyzer import SqlIntent
 from ..services.policy_service import PolicyService
@@ -9,7 +8,7 @@ from .contracts import RouteDecision
 
 
 def route_query(
-    query: Optional[str],
+    query: str | None,
     *,
     policy: PolicyService,
     database: str = "",
@@ -43,7 +42,7 @@ def route_query(
             confidence=max(intent.confidence, 0.4),
         )
 
-    validation = policy.validate(query, database=database)
+    validation = policy.validate(query, database=database, intent=intent)
     if validation["allowed"]:
         return RouteDecision(
             route="direct_execute",

@@ -1,6 +1,6 @@
 [project]
 name = "sqlserver-semantic-mcp"
-version = "0.6.0"
+version = "0.7.0"
 description = "Semantic intelligence layer for SQL Server databases, exposed via MCP. A database understanding engine for AI agents (Claude Code CLI, Codex CLI, Claude Desktop, etc.)."
 readme = "README.en.md"
 requires-python = ">=3.11"
@@ -56,6 +56,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-mock>=3.0.0",
+    "ruff>=0.17.0",
 ]
 
 [project.scripts]
@@ -67,6 +68,23 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["sqlserver_semantic_mcp*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+# Global Git ignore patterns must not hide tracked cache infrastructure.
+respect-gitignore = false
+extend-exclude = ["build", "source"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "BLE"]
+ignore = [
+    "E501",   # line wrapping is owned by `ruff format`; long strings stay as-is
+    "UP042",  # str+Enum is intentional for JSON-serialisation compatibility
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sqlserver_semantic_mcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

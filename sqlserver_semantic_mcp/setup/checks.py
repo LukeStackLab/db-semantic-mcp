@@ -1,4 +1,5 @@
 """Read-only connection checks and an actual MCP subprocess handshake."""
+
 import asyncio
 import os
 import tempfile
@@ -28,7 +29,7 @@ def check_connection(cfg: Config) -> dict:
                 cursor.close()
     except SetupError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 (security boundary – never echo driver errors)
         # Database/driver errors can contain credentials. Do not echo them.
         raise SetupError("無法連線或讀取 metadata，請檢查主機、port、帳號、密碼與 TLS 設定。") from None
     return {"database": actual, "visible_tables": count}
@@ -37,6 +38,7 @@ def check_connection(cfg: Config) -> dict:
 async def _handshake(path: Path, timeout: float) -> int:
     entry = server_entry(path)
     from ..profiles import read_profile
+
     profile = read_profile(path)
     if profile.credential and profile.credential.storage == "env":
         key = profile.credential.key
@@ -56,5 +58,5 @@ async def _handshake(path: Path, timeout: float) -> int:
 def check_mcp(path: Path, *, timeout: float = 60) -> int:
     try:
         return asyncio.run(_handshake(path, timeout))
-    except Exception:
+    except Exception:  # noqa: BLE001 (security boundary – never echo driver errors)
         raise SetupError("MCP 啟動或握手失敗。請使用 doctor 檢查配置與執行環境。") from None

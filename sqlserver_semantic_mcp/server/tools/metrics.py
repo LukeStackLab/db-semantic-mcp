@@ -8,13 +8,7 @@ def register() -> None:
     register_tool(
         Tool(
             name="tool_metrics",
-            description=(
-                "action=get returns per-tool payload metrics (call_count, "
-                "total_bytes, avg_bytes, p95_bytes, max_bytes) ordered by "
-                "total_bytes desc, plus p50/p95 elapsed_ms, worker/DB timing, "
-                "observed cache hits and error_count. Bytes are not token counts. action=reset deletes all "
-                "recorded metrics and returns the deleted count."
-            ),
+            description="Inspect or reset per-tool metrics (latency, payload bytes, cache hits, errors).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -37,5 +31,6 @@ async def _metrics(args: dict):
         n = await metrics_service.clear_metrics(ctx.cfg.cache_path)
         return {"deleted": n}
     return await metrics_service.query_top_tools(
-        ctx.cfg.cache_path, limit=int(args.get("limit", 10)),
+        ctx.cfg.cache_path,
+        limit=int(args.get("limit", 10)),
     )

@@ -4,7 +4,8 @@ import pytest
 
 from sqlserver_semantic_mcp.config import reset_config
 from sqlserver_semantic_mcp.policy.readonly_guard import (
-    find_write_keywords, mask_literals,
+    find_write_keywords,
+    mask_literals,
 )
 from sqlserver_semantic_mcp.services.policy_service import PolicyService
 
@@ -22,33 +23,39 @@ def readonly_svc(tmp_path, monkeypatch):
     return svc
 
 
-@pytest.mark.parametrize("sql", [
-    "SELECT 1 DELETE dbo.X",
-    "WITH c AS (SELECT 1 x) UPDATE dbo.X SET a=1",
-    "SELECT * INTO dbo.NEW_T FROM dbo.X",
-    "SELECT 1 UPDATE dbo.X SET a=1 COMMIT",
-    "SELECT '--' DELETE dbo.X",
-    "SELECT '/*' DELETE dbo.X --*/",
-    "SELECT 1\nEXEC sp_executesql N'DELETE dbo.X'",
-    "SELECT NEXT VALUE FOR dbo.Seq",
-    "SELECT * FROM OPENQUERY(LNK, 'SELECT 1')",
-    "SELECT 1 DISABLE TRIGGER trg ON dbo.X",
-])
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT 1 DELETE dbo.X",
+        "WITH c AS (SELECT 1 x) UPDATE dbo.X SET a=1",
+        "SELECT * INTO dbo.NEW_T FROM dbo.X",
+        "SELECT 1 UPDATE dbo.X SET a=1 COMMIT",
+        "SELECT '--' DELETE dbo.X",
+        "SELECT '/*' DELETE dbo.X --*/",
+        "SELECT 1\nEXEC sp_executesql N'DELETE dbo.X'",
+        "SELECT NEXT VALUE FOR dbo.Seq",
+        "SELECT * FROM OPENQUERY(LNK, 'SELECT 1')",
+        "SELECT 1 DISABLE TRIGGER trg ON dbo.X",
+    ],
+)
 def test_readonly_rejects_hidden_writes(readonly_svc, sql):
     res = readonly_svc.validate(sql)
     assert res["allowed"] is False
     assert "Select-only policy" in res["reason"]
 
 
-@pytest.mark.parametrize("sql", [
-    "SELECT [DELETE], UPDATE_DATE, CREATE_USER FROM dbo.T",
-    "SELECT * FROM dbo.T WHERE NOTE = N'please update, drop it'",
-    "SELECT \"INSERT\" FROM dbo.T",
-    "SELECT 1 -- delete later",
-    "SELECT 1 /* drop table */",
-    "WITH c AS (SELECT 1 x) SELECT x FROM c",
-    "SELECT 'it''s' AS s",
-])
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT [DELETE], UPDATE_DATE, CREATE_USER FROM dbo.T",
+        "SELECT * FROM dbo.T WHERE NOTE = N'please update, drop it'",
+        'SELECT "INSERT" FROM dbo.T',
+        "SELECT 1 -- delete later",
+        "SELECT 1 /* drop table */",
+        "WITH c AS (SELECT 1 x) SELECT x FROM c",
+        "SELECT 'it''s' AS s",
+    ],
+)
 def test_readonly_allows_plain_reads(readonly_svc, sql):
     assert readonly_svc.validate(sql)["allowed"] is True
 
@@ -63,13 +70,19 @@ def test_nested_comment_errs_towards_reject(readonly_svc):
 def test_write_profile_is_not_guarded(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     pf = tmp_path / "p.json"
-    pf.write_text(json.dumps({
-        "active_profile": "rw",
-        "profiles": {"rw": {
-            "profile_name": "rw",
-            "operations": {"select": True, "update": True},
-        }},
-    }))
+    pf.write_text(
+        json.dumps(
+            {
+                "active_profile": "rw",
+                "profiles": {
+                    "rw": {
+                        "profile_name": "rw",
+                        "operations": {"select": True, "update": True},
+                    }
+                },
+            }
+        )
+    )
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
     monkeypatch.setenv("SEMANTIC_MCP_POLICY_FILE", str(pf))

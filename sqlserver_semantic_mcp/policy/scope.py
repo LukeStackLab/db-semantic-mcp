@@ -4,6 +4,7 @@ Allow entries retain case because the server may use a case-sensitive collation.
 Deny entries use casefold: denying extra case variants cannot broaden access.
 Arguments contain decoded names; policy entries use TSQL identifier syntax.
 """
+
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -41,12 +42,11 @@ def table_reference(table: exp.Table) -> ObjectReference:
 @lru_cache(maxsize=1024)
 def parse_scope_entry(value: str) -> ObjectReference:
     try:
-        table = sqlglot.parse_one(value, read="tsql", into=exp.Table,
-                                  error_level=sqlglot.ErrorLevel.RAISE)
+        table = sqlglot.parse_one(value, read="tsql", into=exp.Table, error_level=sqlglot.ErrorLevel.RAISE)
         if any(value for key, value in table.args.items() if key not in {"this", "db", "catalog"}):
             raise ValueError("Invalid scope identifier")
         return table_reference(table)
-    except Exception:
+    except Exception:  # noqa: BLE001 (controlled error replacement)
         raise ValueError("Invalid policy scope identifier") from None
 
 
@@ -89,8 +89,6 @@ def object_allowed(scope: PolicyScope, database: str, schema: str, name: str) ->
     if not allowed:
         return True
     return any(
-        ref.name == name
-        and (not ref.schema or ref.schema == schema)
-        and (not ref.database or ref.database == database)
+        ref.name == name and (not ref.schema or ref.schema == schema) and (not ref.database or ref.database == database)
         for ref in allowed
     )

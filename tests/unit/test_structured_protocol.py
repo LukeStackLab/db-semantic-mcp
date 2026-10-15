@@ -1,4 +1,5 @@
 import json
+from datetime import UTC
 
 import aiosqlite
 import pytest
@@ -11,8 +12,13 @@ from sqlserver_semantic_mcp.server import app as server
 
 @pytest.fixture
 async def cfg(tmp_path, monkeypatch):
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db", cache_enabled=False,
-                                 cache_path=str(tmp_path / "protocol.db"), metrics_enabled=True)
+    cfg = Config.model_construct(
+        mssql_server="fake",
+        mssql_database="db",
+        cache_enabled=False,
+        cache_path=str(tmp_path / "protocol.db"),
+        metrics_enabled=True,
+    )
     await init_store(cfg.cache_path)
     monkeypatch.setattr(server, "get_config", lambda: cfg)
     monkeypatch.setattr(server, "_TOOL_REGISTRY", {})
@@ -23,6 +29,7 @@ async def cfg(tmp_path, monkeypatch):
 async def test_structured_output_preserves_unknown_count_and_empty_rows(cfg):
     async def handler(args):
         return {"executed": True, "rows": [], "total_row_count": None, "result_complete": False}
+
     server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
     result = await server._call_tool_result("sample", {})
     assert result.isError is False
@@ -33,10 +40,39 @@ async def test_structured_output_preserves_unknown_count_and_empty_rows(cfg):
     assert server._TOOL_REGISTRY["sample"][0].outputSchema["type"] == "object"
 
 
+async def test_advertised_output_schema_matches_server_validation(cfg, monkeypatch):
+    from sqlserver_semantic_mcp import config
+    from sqlserver_semantic_mcp.server.tools import register_all
+
+    monkeypatch.setattr(config, "get_config", lambda: cfg)
+    register_all()
+    for name, (tool, _) in server._TOOL_REGISTRY.items():
+        assert tool.outputSchema == server._OUTPUT_VALIDATORS[name].schema
+    listed = server._TOOL_REGISTRY["get_tables"][0].outputSchema
+    assert listed["required"] == ["data"]
+    assert listed["properties"]["data"] == {"type": "array", "items": {"type": "object"}}
+    workflow = server._TOOL_REGISTRY["plan_or_execute_query"][0].outputSchema
+    assert workflow["required"] == ["kind", "data"]
+    assert workflow["properties"]["kind"] == {"const": "plan_or_execute_query"}
+
+
+async def test_explicit_output_schema_is_preserved(cfg):
+    async def handler(args):
+        return {"answer": 42}
+
+    schema = {"type": "object", "properties": {"answer": {"type": "integer"}}, "required": ["answer"]}
+    tool = Tool(name="custom", inputSchema={"type": "object"}, outputSchema=schema)
+    server.register_tool(tool, handler)
+    result = await server._call_tool_result("custom", {})
+    assert result.structuredContent == {"answer": 42}
+    assert tool.outputSchema == schema == server._OUTPUT_VALIDATORS["custom"].schema
+
+
 @pytest.mark.asyncio
 async def test_tool_failure_marks_error_and_records_category(cfg):
     async def handler(args):
         return {"data": {"executed": False, "validation": {"allowed": False}, "error": "denied"}}
+
     server.register_tool(Tool(name="denied", inputSchema={"type": "object"}), handler)
     result = await server._call_tool_result("denied", {})
     assert result.isError is True
@@ -47,24 +83,30 @@ async def test_tool_failure_marks_error_and_records_category(cfg):
 
 
 @pytest.mark.asyncio
-async def test_effective_modes_recorded_from_arguments(cfg):
+async def test_route_type_recorded_from_response(cfg):
     async def handler(args):
-        return {"kind": "plan_or_execute_query", "detail": "brief", "data": {"path": "direct_execute", "executed": True}}
+        return {"kind": "plan_or_execute_query", "data": {"path": "direct_execute", "executed": True}}
+
     server.register_tool(Tool(name="plan_or_execute_query", inputSchema={"type": "object"}), handler)
-    await server._call_tool_result("plan_or_execute_query", {"return_mode": "sample", "token_budget_hint": "tiny"})
+    await server._call_tool_result("plan_or_execute_query", {})
     async with aiosqlite.connect(cfg.cache_path) as db:
-        row = await (await db.execute("SELECT route_type,response_mode,token_budget_hint FROM tool_metrics")).fetchone()
-    assert row == ("direct_execute", "sample", "tiny")
+        row = await (await db.execute("SELECT route_type,was_direct_execute FROM tool_metrics")).fetchone()
+    assert row == ("direct_execute", 1)
 
 
 @pytest.mark.asyncio
 async def test_freshness_failure_does_not_hide_committed_write(cfg, monkeypatch):
     from unittest.mock import AsyncMock
+
     cfg.cache_enabled = True
     monkeypatch.setattr(server.revalidation, "maybe_revalidate", AsyncMock())
-    monkeypatch.setattr(server.revalidation, "cache_freshness", AsyncMock(side_effect=RuntimeError("cache unavailable")))
+    monkeypatch.setattr(
+        server.revalidation, "cache_freshness", AsyncMock(side_effect=RuntimeError("cache unavailable"))
+    )
+
     async def handler(args):
         return {"executed": True, "rows_affected": 1}
+
     server.register_tool(Tool(name="committed", inputSchema={"type": "object"}), handler)
     result = await server._call_tool_result("committed", {})
     assert result.isError is False
@@ -76,8 +118,10 @@ async def test_freshness_failure_does_not_hide_committed_write(cfg, monkeypatch)
 @pytest.mark.asyncio
 async def test_metrics_write_does_not_run_schema_migration(cfg, monkeypatch):
     from sqlserver_semantic_mcp.services import metrics_service
+
     async def migration(*args):
         raise AssertionError("per-call migration")
+
     monkeypatch.setattr(metrics_service, "migrate_metrics", migration)
     await metrics_service.record_metric(cfg.cache_path, "fast", response_bytes=1, elapsed_ms=2)
 
@@ -90,8 +134,10 @@ async def test_mcp_memory_transport_validates_structured_results(cfg):
 
     async def success(args):
         return [{"table": "dbo.Public"}]
+
     async def failure(args):
         raise ValueError("invalid fixture argument")
+
     server.register_tool(Tool(name="get_tables", inputSchema={"type": "object"}), success)
     server.register_tool(Tool(name="fail", inputSchema={"type": "object"}), failure)
     async with create_client_server_memory_streams() as (client_streams, server_streams):
@@ -113,21 +159,27 @@ async def test_mcp_memory_transport_validates_structured_results(cfg):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("endpoint", ["tool", "resource"])
 async def test_interleaved_snapshot_retains_payload_freshness(cfg, monkeypatch, endpoint):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
+
     from pydantic import AnyUrl
+
     from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
-    from sqlserver_semantic_mcp.services import metadata_service
     from sqlserver_semantic_mcp.server.resources import schema as resources
+    from sqlserver_semantic_mcp.services import metadata_service
 
     cfg.cache_enabled = True
     cfg.connection_name = None
-    old = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    old = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     snap = structural.StructuralSnapshot(
         tables=[("dbo", "Users")],
         columns=[("dbo", "Users", "Id", "int", None, 0, None, 1)],
-        primary_keys=[], foreign_keys=[], indexes=[], objects=[], comments=[],
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=[],
+        comments=[],
     )
     await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
     async with aiosqlite.connect(cfg.cache_path) as db:
@@ -145,8 +197,10 @@ async def test_interleaved_snapshot_retains_payload_freshness(cfg, monkeypatch, 
     monkeypatch.setattr(revalidation, "cache_freshness", interleave)
     monkeypatch.setattr(resources, "get_context", lambda: SimpleNamespace(cfg=cfg, policy=None))
     if endpoint == "tool":
+
         async def handler(args):
             return await metadata_service.describe_table(cfg.cache_path, "db", "dbo", "Users")
+
         server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
         result = await server._call_tool_result("sample", {})
         assert result.isError is False
@@ -163,21 +217,29 @@ async def test_interleaved_snapshot_retains_payload_freshness(cfg, monkeypatch, 
 
 @pytest.mark.asyncio
 async def test_snapshot_stale_flag_survives_compaction_and_elapsed_ttl(cfg, monkeypatch):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     from unittest.mock import AsyncMock
 
     cfg.cache_enabled = True
-    captured_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    captured_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     monkeypatch.setattr(server.revalidation, "maybe_revalidate", AsyncMock())
-    monkeypatch.setattr(server.revalidation, "cache_freshness", AsyncMock(return_value={
-        "captured_at": datetime.now(timezone.utc).isoformat(), "stale": False, "age_seconds": 0,
-        "refreshing": True, "refresh_failed": False,
-    }))
+    monkeypatch.setattr(
+        server.revalidation,
+        "cache_freshness",
+        AsyncMock(
+            return_value={
+                "captured_at": datetime.now(UTC).isoformat(),
+                "stale": False,
+                "age_seconds": 0,
+                "refreshing": True,
+                "refresh_failed": False,
+            }
+        ),
+    )
 
     async def handler(args):
         # This flag records the read. A delayed response can cross its TTL.
-        return {"columns": [{"data_type": "int"}],
-                "cache": {"hit": True, "captured_at": captured_at, "stale": False}}
+        return {"columns": [{"data_type": "int"}], "cache": {"hit": True, "captured_at": captured_at, "stale": False}}
 
     server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
     result = await server._call_tool_result("sample", {})
@@ -190,22 +252,27 @@ async def test_snapshot_stale_flag_survives_compaction_and_elapsed_ttl(cfg, monk
 
 @pytest.mark.asyncio
 async def test_classification_resource_without_identity_does_not_claim_latest_snapshot(cfg, monkeypatch):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
+
     from pydantic import AnyUrl
+
     from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
-    from sqlserver_semantic_mcp.services import semantic_service
     from sqlserver_semantic_mcp.server.resources import schema as resources
+    from sqlserver_semantic_mcp.services import semantic_service
 
     cfg.cache_enabled = True
     cfg.connection_name = None
-    old_capture = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    old_capture = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     snap = structural.StructuralSnapshot(
         tables=[("dbo", "T")],
-        columns=[("dbo", "T", name, "nvarchar", 20, 0, None, i)
-                 for i, name in enumerate(("Code", "Name"), 1)],
-        primary_keys=[], foreign_keys=[], indexes=[], objects=[], comments=[],
+        columns=[("dbo", "T", name, "nvarchar", 20, 0, None, i) for i, name in enumerate(("Code", "Name"), 1)],
+        primary_keys=[],
+        foreign_keys=[],
+        indexes=[],
+        objects=[],
+        comments=[],
     )
     await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
     async with aiosqlite.connect(cfg.cache_path) as db:
@@ -214,8 +281,7 @@ async def test_classification_resource_without_identity_does_not_claim_latest_sn
     original_freshness = revalidation.cache_freshness
 
     async def interleave(_cfg):
-        snap.columns = [("dbo", "T", name, "int", None, 0, None, i)
-                        for i, name in enumerate(("X", "Y", "Z"), 1)]
+        snap.columns = [("dbo", "T", name, "int", None, 0, None, i) for i, name in enumerate(("X", "Y", "Z"), 1)]
         await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
         return await original_freshness(_cfg)
 
@@ -237,15 +303,18 @@ async def test_classification_resource_without_identity_does_not_claim_latest_sn
 async def test_metadata_list_array_without_identity_uses_latest_snapshot_envelope(cfg, monkeypatch, endpoint):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
+
     from pydantic import AnyUrl
+
     from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
-    from sqlserver_semantic_mcp.services import metadata_service
     from sqlserver_semantic_mcp.server.resources import schema as resources
+    from sqlserver_semantic_mcp.services import metadata_service
 
     cfg.cache_enabled = True
     cfg.connection_name = None
-    snap = structural.StructuralSnapshot(tables=[("dbo", "Old")], columns=[], primary_keys=[],
-                                         foreign_keys=[], indexes=[], objects=[], comments=[])
+    snap = structural.StructuralSnapshot(
+        tables=[("dbo", "Old")], columns=[], primary_keys=[], foreign_keys=[], indexes=[], objects=[], comments=[]
+    )
     await structural.write_structural_snapshot(cfg.cache_path, "db", snap)
     original_freshness = revalidation.cache_freshness
 
@@ -258,8 +327,10 @@ async def test_metadata_list_array_without_identity_uses_latest_snapshot_envelop
     monkeypatch.setattr(revalidation, "cache_freshness", interleave)
     monkeypatch.setattr(resources, "get_context", lambda: SimpleNamespace(cfg=cfg, policy=None))
     if endpoint == "tool":
+
         async def handler(args):
             return await metadata_service.list_tables(cfg.cache_path, "db")
+
         server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
         result = await server._call_tool_result("sample", {})
         assert result.isError is False
@@ -267,8 +338,7 @@ async def test_metadata_list_array_without_identity_uses_latest_snapshot_envelop
         assert payload == json.loads(result.content[0].text)
     else:
         payload = json.loads(await resources.read_resource(AnyUrl("semantic://schema/tables")))
-    expected_tables = ([{"table": "dbo.Old"}] if endpoint == "tool"
-                       else [{"schema_name": "dbo", "table_name": "Old"}])
+    expected_tables = [{"table": "dbo.Old"}] if endpoint == "tool" else [{"schema_name": "dbo", "table_name": "Old"}]
     assert payload["data"] == expected_tables
     assert await metadata_service.list_tables(cfg.cache_path, "db") == [{"schema_name": "dbo", "table_name": "New"}]
     assert payload["cache"]["snapshot_unknown"] is True
@@ -282,16 +352,22 @@ async def test_metadata_list_array_without_identity_uses_latest_snapshot_envelop
 async def test_identity_free_payload_survives_freshness_failure(cfg, monkeypatch, endpoint, data):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
+
     from pydantic import AnyUrl
+
     from sqlserver_semantic_mcp.server.resources import schema as resources
 
     cfg.cache_enabled = True
     cfg.connection_name = None
     monkeypatch.setattr(server.revalidation, "maybe_revalidate", AsyncMock())
-    monkeypatch.setattr(server.revalidation, "cache_freshness", AsyncMock(side_effect=RuntimeError("cache unavailable")))
+    monkeypatch.setattr(
+        server.revalidation, "cache_freshness", AsyncMock(side_effect=RuntimeError("cache unavailable"))
+    )
     if endpoint == "tool":
+
         async def handler(args):
             return data
+
         server.register_tool(Tool(name="sample", inputSchema={"type": "object"}), handler)
         result = await server._call_tool_result("sample", {})
         assert result.isError is False

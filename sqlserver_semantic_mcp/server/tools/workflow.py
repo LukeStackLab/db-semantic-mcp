@@ -1,4 +1,5 @@
-"""Workflow-layer MCP tools (v0.5)."""
+"""Workflow-layer MCP tools."""
+
 from __future__ import annotations
 
 from mcp.types import Tool
@@ -10,19 +11,14 @@ def register() -> None:
     register_tool(
         Tool(
             name="discover_relevant_tables",
-            description=(
-                "Return a small, ranked candidate set for a natural-language "
-                "goal. Use before describe_table / find_join_path when the "
-                "target tables are not yet known."
-            ),
+            description="Find tables for a natural-language goal or keyword.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "goal":    {"type": "string"},
-                    "schemas": {"type": "array",
-                                "items": {"type": "string"}},
+                    "goal": {"type": "string"},
+                    "schemas": {"type": "array", "items": {"type": "string"}},
                     "keyword": {"type": "string"},
-                    "limit":   {"type": "integer", "minimum": 1, "default": 10},
+                    "limit": {"type": "integer", "minimum": 1, "default": 10},
                     "classify": {"type": "boolean", "default": False},
                 },
                 "required": ["goal"],
@@ -30,6 +26,7 @@ def register() -> None:
         ),
         _discover,
     )
+
 
 # ---- handlers ---------------------------------------------------------------
 

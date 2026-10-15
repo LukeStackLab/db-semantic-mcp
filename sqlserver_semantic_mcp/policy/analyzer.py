@@ -1,8 +1,7 @@
 import re
 from dataclasses import dataclass, field
-from typing import List
 
-from ..domain.enums import SqlOperation, RiskLevel
+from ..domain.enums import RiskLevel, SqlOperation
 from .scope import ObjectReference
 
 
@@ -11,11 +10,11 @@ class SqlIntent:
     primary_operation: SqlOperation
     has_where_clause: bool
     has_top_clause: bool
-    affected_tables: List[str] = field(default_factory=list)
+    affected_tables: list[str] = field(default_factory=list)
     risk_level: RiskLevel = RiskLevel.LOW
     is_multi_statement: bool = False
     statement_count: int = 1
-    # v0.5 heuristics — used by workflow router / risk estimation.
+    # Heuristics used by workflow router / risk estimation.
     is_sql_like: bool = True
     confidence: float = 0.9
     requires_discovery: bool = False
@@ -29,6 +28,8 @@ class SqlIntent:
     required_operations: list[SqlOperation] = field(default_factory=list, repr=False)
     is_simple_write: bool = False
     metadata_functions: list[str] = field(default_factory=list, repr=False)
+    # Count of leading DECLARE/SET @variable statements (variables only).
+    variable_statements: int = 0
 
 
 _OP_MAP = {
@@ -103,7 +104,9 @@ def _extract_tables(sql: str, operation: SqlOperation) -> list[str]:
 
 
 def _compute_risk(
-    operation: SqlOperation, has_where: bool, is_multi: bool,
+    operation: SqlOperation,
+    has_where: bool,
+    is_multi: bool,
 ) -> RiskLevel:
     if operation in (SqlOperation.DROP, SqlOperation.TRUNCATE):
         return RiskLevel.CRITICAL
@@ -113,8 +116,7 @@ def _compute_risk(
         return RiskLevel.HIGH if not has_where else RiskLevel.MEDIUM
     if operation in (SqlOperation.UPDATE, SqlOperation.MERGE):
         return RiskLevel.HIGH if not has_where else RiskLevel.MEDIUM
-    if operation in (SqlOperation.INSERT, SqlOperation.CREATE,
-                     SqlOperation.EXEC, SqlOperation.EXECUTE):
+    if operation in (SqlOperation.INSERT, SqlOperation.CREATE, SqlOperation.EXEC, SqlOperation.EXECUTE):
         return RiskLevel.MEDIUM
     if is_multi:
         return RiskLevel.MEDIUM
@@ -122,8 +124,20 @@ def _compute_risk(
 
 
 _SQL_KEYWORDS = (
-    "select", "insert", "update", "delete", "truncate", "create",
-    "alter", "drop", "exec", "execute", "merge", "with", "from", "where",
+    "select",
+    "insert",
+    "update",
+    "delete",
+    "truncate",
+    "create",
+    "alter",
+    "drop",
+    "exec",
+    "execute",
+    "merge",
+    "with",
+    "from",
+    "where",
     "join",
 )
 
@@ -149,7 +163,8 @@ def _has_unqualified(tables: list[str]) -> bool:
 
 
 _DYNAMIC_PAT = re.compile(
-    r"\b(EXEC(?:UTE)?\s*\(|sp_executesql)\b", re.IGNORECASE,
+    r"\b(EXEC(?:UTE)?\s*\(|sp_executesql)\b",
+    re.IGNORECASE,
 )
 _CTE_PAT = re.compile(r"^\s*WITH\b", re.IGNORECASE)
 
@@ -180,10 +195,7 @@ def analyze_sql(sql: str) -> SqlIntent:
     else:
         confidence = 0.9
 
-    requires_discovery = (
-        not is_sql_like
-        or operation == SqlOperation.UNKNOWN
-    )
+    requires_discovery = not is_sql_like or operation == SqlOperation.UNKNOWN
 
     return SqlIntent(
         primary_operation=operation,

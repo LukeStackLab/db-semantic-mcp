@@ -1,4 +1,5 @@
 """Unit tests for the get_execution_policy tool's reload flag (Task 9)."""
+
 import pytest
 
 
@@ -10,8 +11,10 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
     monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
     from sqlserver_semantic_mcp.config import reset_config
+
     reset_config()
     from sqlserver_semantic_mcp.server.app import reset_context
+
     reset_context()
 
 
@@ -22,7 +25,8 @@ async def test_get_execution_policy_reload(env, monkeypatch):
     ctx = policy_tool.get_context()
     called = {"reload": 0}
     monkeypatch.setattr(
-        ctx.policy, "reload",
+        ctx.policy,
+        "reload",
         lambda: called.__setitem__("reload", called["reload"] + 1),
     )
 
