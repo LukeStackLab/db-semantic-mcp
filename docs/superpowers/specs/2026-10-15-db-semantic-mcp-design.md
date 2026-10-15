@@ -11,9 +11,9 @@
 - SQL Server 2017+ 既有的 12 個工具、scope、交易與輸出限制維持。
 - Oracle 19c+；預設 Thin，可明確設定 Thick。需要的 driver 延遲載入，SQL Server-only 安裝不依賴 Oracle Client。
 - 共用唯讀預設；明確開啟後允許單一 INSERT VALUES、UPDATE WHERE。禁止 DELETE、DDL、PL/SQL 執行、交易控制與不透明來源；遠端亦同。
-- Oracle 探索欄位、PK、複合 FK、索引、註解、view、procedure、function、package、package body、synonym 及靜態 dependencies。
+- Oracle 探索欄位、PK、複合 FK、索引、註解、view、procedure、function、package、package body、synonym 及靜態 dependencies。PL/SQL 不透明定義一律不回傳，保留已授權 metadata／靜態 dependencies 與 IO unknown；remote 採明確授權，local 無範圍限制不能證明動態遠端依賴安全。VIEW 定義僅在來源／函式／欄位驗證成立後揭露，MATERIALIZED VIEW 未有同等證明則不回傳定義。
 - 支援本機／public synonym、解析鏈、Oracle DB link 遠端 synonym、直接探索明確設定的 DB link。遠端也限 Oracle 19c+。不建立或修改 DB link。
-- 不宣稱完整 PL/SQL 控制流程或動態 SQL 分析；無證據的讀寫、cardinality、相依資訊明示未知。受限 scope 下無法確認完整定義的安全範圍時隱藏定義。
+- 不宣稱完整 PL/SQL 控制流程或動態 SQL 分析；無證據的讀寫、cardinality、相依資訊明示未知。無法確認完整定義的安全範圍時隱藏定義；local 無限制仍受 remote 明確授權邊界約束。
 
 ## 核心與邊界
 
@@ -29,9 +29,11 @@ Source definition 僅表示路由，不授權。Policy 對 local 沿用現有 sc
 
 ## 正確性與效率
 
-原生 Oracle SQL 型別須保留 NUMBER precision/scale、字元長度語意、timestamp/time zone；Decimal 不得轉為 float。LOB 在 connection 存活時有限量讀取；禁止先完整讀取大 LOB 再截斷。SQLGlot 只分析，不轉譯原始 SQL。拒絕 SELECT FOR UPDATE、sequence 變更、remote functions、SQL 內 PL/SQL、未知／可能有副作用的自訂函式。內建純函式採明確可審核集合。
+原生 Oracle SQL 型別須保留 NUMBER precision/scale、字元長度語意、timestamp/time zone；Decimal 不得轉為 float。若 driver 公開 API 無法保留 TIMESTAMP 精度或時區，必須明確拒絕該原生輸出並提示 caller 在原始 SQL 使用 TO_CHAR；不得回傳看似完整的失真值或自行重寫 SQL。Thick 保真轉換須經實機證明。LOB 在 connection 存活時有限量讀取；禁止先完整讀取大 LOB 再截斷。SQLGlot 只分析，不轉譯原始 SQL。拒絕 SELECT FOR UPDATE、sequence 變更、remote functions、SQL 內 PL/SQL、未知／可能有副作用的自訂函式。內建純函式採明確可審核集合。Oracle 零參數函式可看似 column reference，須以 live 欄位／查詢 scope 證據驗證。經 live 解析確定的 SYS.DUAL 可視為純量查詢 intrinsic，但 explicit deny 及來源操作限制仍生效，private shadow 不適用。遠端無 owner 且無可靠 CURRENT_SCHEMA 證據時要求 owner.table@link。
 
-Oracle metadata 取 ALL_* 可見 catalog，先按來源及 policy 過濾再寫 cache。複合 FK 保留順序與 constraint identity；disabled、not validated、deferrable 或 functional index 證據不足時不推論可信唯一性。snapshot fingerprint 必須涵蓋 constraint/index/comment/definition 變更；可先採 catalog-only snapshot hashing，並以 TTL/worker bound 限制成本，不能僅依 LAST_DDL_TIME 而漏掉變更。
+Oracle metadata 取 ALL_* 可見 catalog，先按來源及 policy 過濾再寫 cache。預設 inventory 僅取 ALL_USERS.ORACLE_MAINTAINED=N 的應用 schemas；明確 policy.allowed_schemas 可納入系統 schema。capabilities 與文件揭露此探索範圍，避免掃描大量公開系統 package source。複合 FK 保留順序與 constraint identity；disabled、not validated、deferrable 或 functional index 證據不足時不推論可信唯一性。snapshot fingerprint 必須涵蓋 constraint/index/comment/definition 變更；可先採 catalog-only snapshot hashing，並以 TTL/worker bound 限制成本，不能僅依 LAST_DDL_TIME 而漏掉變更。
+
+columns header 本身超過 max_response_bytes 時回受控的結果過寬錯誤，不回超出上限的欄位清單，也不宣稱完整。
 
 保留 bounded synchronous driver workers，不同 driver 不強迫混用 async API。不在每個 tool 引入全庫即時掃描。Remote source on-demand warmup、single-flight、stale-while-revalidate；離線舊 cache 明示狀態。query_timeout 的實際語意需如實揭露；Oracle call_timeout 是單次 round trip，不能誤稱整個查詢總 deadline。
 
@@ -45,7 +47,7 @@ autocommit 關閉。超過 affected-row cap 則 rollback；commit/rollback ackno
 
 ## 驗證與交付
 
-保留原有 586 項 unit tests 的語意，新增 driver/config/catalog/dialect/synonym/source context/migration/LOB/distributed outcome 測試。Mock 是契約驗證，不取代 Oracle 實機認證。提供明確 opt-in 的 SQL Server 與 Oracle live tests，以及兩個獨立 Oracle source 的 DB link 測試 fixture/步驟；不自動讀取或操作使用者未知正式 DB。環境僅知有單一 Oracle，尚無連線參數，交付報告須列出未執行的 live matrix。
+保留原有 586 項 unit tests 的語意，新增 driver/config/catalog/dialect/synonym/source context/migration/LOB/distributed outcome 測試。Mock 是契約驗證，不取代 Oracle 實機認證。提供明確 opt-in 的 SQL Server 與 Oracle live tests，以及兩個獨立 Oracle source 的 DB link 測試 fixture/步驟；不自動讀取或操作使用者未知正式 DB。使用本任務建立的兩個獨立 Oracle disposable 節點與獨立 SQL Server 驗證；交付報告仍須列出實際版本及未認證的 live matrix。
 
 檢查完整 pytest、ruff、build、wheel 安裝、CLI help、可重現 lockfile；README 三份、.env.example、policy/profile 範例、migration、Thin/Thick、DB link 與限制同步。僅提交本任務檔案，不 push。保留既有 uv.lock 差異的 snapshot；若新套件身分與 optional dependency 要求重建 lock，從新 pyproject 獨立求解，保留仍適用的既有內容並記錄整合原因。
 

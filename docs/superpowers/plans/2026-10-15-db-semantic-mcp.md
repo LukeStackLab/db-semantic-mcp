@@ -38,11 +38,11 @@
 
 **Interfaces:** Produces the existing implementation under db_semantic_mcp, Config.server/database/user/password/port/windows_auth/encrypt and SEMANTIC_MCP_* neutral env names; existing services consume these directly. Keep build_pymssql_kwargs API intact. New product version 0.8.0 and sole new CLI; distribution lukestack-db-semantic-mcp avoids the unrelated existing PyPI project. Keep actual GitHub repository URLs until external rename. No Oracle behavior in this task.
 
-- [ ] Update CLI/import assertions first and demonstrate missing new module failure.
-- [ ] Mechanically rename namespace, distribution strings, credential service/config root/server name, runtime config fields and test usages. Do not accidentally rename pymssql library or backend-specific function names. Old product names only in migration/history contexts.
-- [ ] Run the complete existing unit suite through .venv/bin/python -m pytest to avoid lock changes; fix genuine integration regressions.
-- [ ] Verify pyproject entry point, version, CLI help and test baseline. Report exact commands/results.
-- [ ] Commit the coherent rename excluding uv.lock; write task report.
+- [x] Update CLI/import assertions first and demonstrate missing new module failure.
+- [x] Mechanically rename namespace, distribution strings, credential service/config root/server name, runtime config fields and test usages. Do not accidentally rename pymssql library or backend-specific function names. Old product names only in migration/history contexts.
+- [x] Run the complete existing unit suite through .venv/bin/python -m pytest to avoid lock changes; fix genuine integration regressions.
+- [x] Verify pyproject entry point, version, CLI help and test baseline. Report exact commands/results.
+- [x] Commit the coherent rename excluding uv.lock; write task report.
 
 ### Task 2: Backend boundary, Oracle configuration and catalog
 
@@ -51,13 +51,13 @@
 **Consumes:** Task 1 neutral Config and namespace; existing StructuralSnapshot (12 column fields, 11 FK fields, 8 index fields) and SchemaFingerprints. Preserve these contracts for SQL Server.
 **Produces:** Config.database_type='sqlserver'|'oracle', Config.oracle (validated OracleOptions), Config.sources mapping source ids to RemoteSource(db_link,readonly), Config.source_id='local', Config.source_dblink=None and Config.for_source(source_id) isolated cache clone. Profile v2 with same common fields and oracle/sources; read_profile rejects v1 with migrate hint (Task 4 migration parses legacy explicitly). backend_for(cfg) exposing connect, fetch_snapshot, fetch_fingerprints, get_object_definition, get_object_dependencies, describe_result_schema and capabilities. open_connection/fetch helpers dispatch by backend. Native Oracle type information retained. Oracle driver optional extra oracledb>=3.4,<27, lazy import; SQL Server remains installed by default for backward usability. Both driver modes use bounded sync workers.
 
-- [ ] Test Oracle config exclusivity/default ports/DSN/mode, fixed profile env isolation and unknown-field rejection; source clones do not share cache paths.
-- [ ] Implement backend selection without eager Oracle import. Thin connect uses oracledb.connect; explicit Thick initializes once consistently and never silently changes mode. Connect timeout and per-call timeout configured with truthful semantics.
-- [ ] Implement ALL_* catalog queries with bind variables; source db_link interpolation only from validated identifier grammar AND catalog-confirmed configured route. Include comments, composite constraints, indexes, objects/packages/synonyms, static definitions/deps and snapshot fingerprints. No DBA grants required by default; remote limitations explicit.
-- [ ] Normalize constraint/index evidence conservatively (invalid/not validated/deferrable/function-based cannot prove trustworthy unique cardinality). Preserve Oracle native type, precision/scale/char semantics and timezone. Keep SQL Server snapshot schema and all baseline tests intact.
-- [ ] Backend value conversion reads bounded LOB prefix while connection remains open; Decimal preserved, never floats. SELECT-only result description must not parse DDL. Expose provider capabilities for tool integration.
-- [ ] Test fake-driver calls, bindings, catalog tuple shape, native types, fingerprints changing on comments/constraints, unsupported remote metadata, optional imports and LOB caps. Run complete unit suite.
-- [ ] Commit task files excluding uv.lock and write report including exact backend signatures and OracleOptions fields for Task 3/4.
+- [x] Test Oracle config exclusivity/default ports/DSN/mode, fixed profile env isolation and unknown-field rejection; source clones do not share cache paths.
+- [x] Implement backend selection without eager Oracle import. Thin connect uses oracledb.connect; explicit Thick initializes once consistently and never silently changes mode. Connect timeout and per-call timeout configured with truthful semantics.
+- [x] Implement ALL_* catalog queries with bind variables; source db_link interpolation only from validated identifier grammar AND catalog-confirmed configured route. Include comments, composite constraints, indexes, objects/packages/synonyms, static definitions/deps and snapshot fingerprints. No DBA grants required by default; remote limitations explicit.
+- [x] Normalize constraint/index evidence conservatively (invalid/not validated/deferrable/function-based cannot prove trustworthy unique cardinality). Preserve Oracle native type, precision/scale/char semantics and timezone. Keep SQL Server snapshot schema and all baseline tests intact.
+- [x] Backend value conversion reads bounded LOB prefix while connection remains open; Decimal preserved, never floats. SELECT-only result description must not parse DDL. Expose provider capabilities for tool integration.
+- [x] Test fake-driver calls, bindings, catalog tuple shape, native types, fingerprints changing on comments/constraints, unsupported remote metadata, optional imports and LOB caps. Run complete unit suite.
+- [x] Commit task files excluding uv.lock and write report including exact backend signatures and OracleOptions fields for Task 3/4.
 
 ### Task 3: Strict Oracle policy, synonym resolution and query execution
 
@@ -66,12 +66,12 @@
 **Consumes:** Task 2 Config/backend interfaces; existing SQL Server AST remains independently strict.
 **Produces:** Provider-selected authorization analyzer; ObjectReference extended with source identity without breaking local SQL Server. PolicyScope remote source scope map (typed, extra=forbid). PolicyService resolves each physical reference to configured source and actual synonym targets using same DB session as execution where possible; remote routes explicitly authorized. Oracle object service uses catalog definitions/static deps, not T-SQL regex. All denial hints dialect-appropriate.
 
-- [ ] Add adversarial tests: quoted/unquoted Oracle names; nested CTEs; DB link full/dotted names and aliases; public/private synonym shadowing, chains, inaccessible target/cycles/retargeting; scoped functions; q-quoted literals; NEXTVAL, FOR UPDATE, PL/SQL, RETURNING, multiple statements and unknown syntax denied.
-- [ ] Implement strict Oracle AST authorization, identifier normalization preserving quote semantics, SQL keyword guard that understands Oracle literals, source authorization and synonym resolver with bounded depth/cycle detection. Remote source definitions alone do not grant permission. Enforce alias/target denials and operation permissions for every touched source. Never use stale snapshot alone to approve synonym-based SQL.
-- [ ] Keep simple INSERT VALUES / UPDATE WHERE including remote targets; reject custom/remote functions or unproven sources even in otherwise SELECT SQL. Restrict builtins explicitly; do not claim complete PL/SQL analysis.
-- [ ] Route result preflight/type conversion through backend; perform authorization before driver execution or parse. Never rewrite caller SQL or auto-append @link. Use explicit transaction ownership and existing strict affected-row cap. Return transaction_state unknown and automatic_retry_allowed false for ambiguous remote writes or commit/rollback errors. Redact passwords and wallet secrets.
-- [ ] Implement Oracle describe_object for VIEW/PROCEDURE/FUNCTION/PACKAGE/PACKAGE BODY/SYNONYM; keep truthful static dependency/IO completeness. Under restricted scope with uncertain transitive/dynamic sources withhold definition; never parse PL/SQL with TSQL analyzer.
-- [ ] Run focused security tests and full unit suite. Commit task files; write report with source-policy JSON schema and resolution APIs for Task 4.
+- [x] Add adversarial tests: quoted/unquoted Oracle names; nested CTEs; DB link full/dotted names and aliases; public/private synonym shadowing, chains, inaccessible target/cycles/retargeting; scoped functions; q-quoted literals; NEXTVAL, FOR UPDATE, PL/SQL, RETURNING, multiple statements and unknown syntax denied.
+- [x] Implement strict Oracle AST authorization, identifier normalization preserving quote semantics, SQL keyword guard that understands Oracle literals, source authorization and synonym resolver with bounded depth/cycle detection. Remote source definitions alone do not grant permission. Enforce alias/target denials and operation permissions for every touched source. Never use stale snapshot alone to approve synonym-based SQL.
+- [x] Keep simple INSERT VALUES / UPDATE WHERE including remote targets; reject custom/remote functions or unproven sources even in otherwise SELECT SQL. Restrict builtins explicitly; do not claim complete PL/SQL analysis.
+- [x] Route result preflight/type conversion through backend; perform authorization before driver execution or parse. Never rewrite caller SQL or auto-append @link. Use explicit transaction ownership and existing strict affected-row cap. Return transaction_state unknown and automatic_retry_allowed false for ambiguous remote writes or commit/rollback errors. Redact passwords and wallet secrets.
+- [x] Implement Oracle describe_object for VIEW/PROCEDURE/FUNCTION/PACKAGE/PACKAGE BODY/SYNONYM; keep truthful static dependency/IO completeness. Always withhold opaque PL/SQL definitions because unknown remote dependencies cannot be authorized; retain scoped static dependencies and IO unknown. Reveal VIEW definitions only after live proof; withhold unproven MATERIALIZED VIEW definitions. Never parse PL/SQL with TSQL analyzer.
+- [x] Run focused security tests and full unit suite. Commit task files; write report with source-policy JSON schema and resolution APIs for Task 4.
 
 ### Task 4: Source-aware tools, setup, doctor and migration
 
