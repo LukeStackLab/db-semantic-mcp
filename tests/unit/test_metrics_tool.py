@@ -6,21 +6,21 @@ import pytest
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import reset_context
+    from db_semantic_mcp.server.app import reset_context
 
     reset_context()
 
 
 @pytest.mark.asyncio
 async def test_tool_metrics_action(env, monkeypatch):
-    from sqlserver_semantic_mcp.server.tools import metrics as m
+    from db_semantic_mcp.server.tools import metrics as m
 
     async def fake_top(cache_path, limit):
         return [{"tool": "x", "total_bytes": 1}]
@@ -43,7 +43,7 @@ async def test_tool_metrics_action(env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tool_metrics_passes_limit(env, monkeypatch):
-    from sqlserver_semantic_mcp.server.tools import metrics as m
+    from db_semantic_mcp.server.tools import metrics as m
 
     seen = {}
 

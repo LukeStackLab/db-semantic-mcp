@@ -3,14 +3,14 @@
 import aiosqlite
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     compute_structural_hash,
     write_structural_snapshot,
 )
-from sqlserver_semantic_mcp.infrastructure.queries.metadata_queries import GET_FOREIGN_KEYS
-from sqlserver_semantic_mcp.services import relationship_service as rel
+from db_semantic_mcp.infrastructure.queries.metadata_queries import GET_FOREIGN_KEYS
+from db_semantic_mcp.services import relationship_service as rel
 
 
 def _fk(source, column, target, ref_column, identity, ordinal=1, schema="dbo"):
@@ -305,11 +305,11 @@ async def test_xml_spatial_indexes_survive_snapshot_and_full_describe_without_un
 
     import sqlglot
 
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import fetch_snapshot_from_server
-    from sqlserver_semantic_mcp.infrastructure.queries import metadata_queries as queries
-    from sqlserver_semantic_mcp.infrastructure.queries.comment_queries import GET_COMMENTS
-    from sqlserver_semantic_mcp.services.metadata_service import describe_table
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache.structural import fetch_snapshot_from_server
+    from db_semantic_mcp.infrastructure.queries import metadata_queries as queries
+    from db_semantic_mcp.infrastructure.queries.comment_queries import GET_COMMENTS
+    from db_semantic_mcp.services.metadata_service import describe_table
 
     # Evaluate the query's real WHERE and uniqueness expression against catalog
     # rows. No SQL Server connection is used. A malformed special-index unique
@@ -354,7 +354,7 @@ async def test_xml_spatial_indexes_survive_snapshot_and_full_describe_without_un
         def cursor(self):
             return Cursor()
 
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
+    cfg = Config.model_construct(server="fake", database="db")
     snapshot = fetch_snapshot_from_server(cfg, conn=Connection())
     path = str(tmp_path / "special-indexes.db")
     await init_store(path)

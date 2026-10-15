@@ -2,15 +2,15 @@ import json
 
 import pytest
 
-from sqlserver_semantic_mcp.credentials import CredentialReference
-from sqlserver_semantic_mcp.profiles import (
+from db_semantic_mcp.credentials import CredentialReference
+from db_semantic_mcp.profiles import (
     ConnectionProfile,
     load_profile,
     policy_bytes,
     profile_bytes,
 )
-from sqlserver_semantic_mcp.services.policy_service import PolicyService
-from sqlserver_semantic_mcp.setup.files import SetupError, atomic_write
+from db_semantic_mcp.services.policy_service import PolicyService
+from db_semantic_mcp.setup.files import SetupError, atomic_write
 
 
 @pytest.fixture
@@ -36,29 +36,29 @@ def saved(tmp_path, monkeypatch):
 
 def test_profiles_isolate_same_database_and_inherited_env(saved, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env").write_text("SEMANTIC_MCP_MSSQL_DATABASE=Wrong\nSEMANTIC_MCP_POLICY_PROFILE=admin\n")
+    (tmp_path / ".env").write_text("SEMANTIC_MCP_DATABASE=Wrong\nSEMANTIC_MCP_POLICY_PROFILE=admin\n")
     for key, value in {
-        "MSSQL_SERVER": "wrong-host",
-        "MSSQL_DATABASE": "Wrong",
-        "MSSQL_PASSWORD": "wrong-password",
+        "SERVER": "wrong-host",
+        "DATABASE": "Wrong",
+        "PASSWORD": "wrong-password",
         "POLICY_PROFILE": "admin",
         "DEFAULT_TOKEN_BUDGET_HINT": "high",
         "CACHE_PATH": "/wrong.db",
         "STRICT_ROWS_AFFECTED_CAP": "false",
-        "MSSQL_WINDOWS_AUTH": "true",
+        "WINDOWS_AUTH": "true",
     }.items():
         monkeypatch.setenv("SEMANTIC_MCP_" + key, value)
     configs = [load_profile(saved(f"erp{n}")) for n in range(5)]
     assert len({cfg.cache_path for cfg in configs}) == 5
     assert len({cfg.policy_file for cfg in configs}) == 5
     for cfg in configs:
-        assert cfg.mssql_server == "sql.example"
-        assert cfg.mssql_database == "ERP"
-        assert cfg.mssql_password == "not-in-profile"
+        assert cfg.server == "sql.example"
+        assert cfg.database == "ERP"
+        assert cfg.password == "not-in-profile"
         assert cfg.policy_profile == "readonly"
         assert cfg.max_response_bytes == 65536
         assert cfg.strict_rows_affected_cap is False and cfg.connection_name
-        assert cfg.mssql_windows_auth is False
+        assert cfg.windows_auth is False
 
 
 def test_changed_target_gets_new_cache(saved):

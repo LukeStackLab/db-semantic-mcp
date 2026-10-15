@@ -2,8 +2,8 @@
 
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.services import metrics_service
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.services import metrics_service
 
 
 @pytest.fixture

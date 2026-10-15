@@ -3,9 +3,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from sqlserver_semantic_mcp import credentials
-from sqlserver_semantic_mcp.credentials import CredentialError, CredentialReference
-from sqlserver_semantic_mcp.setup.files import SetupError, atomic_write
+from db_semantic_mcp import credentials
+from db_semantic_mcp.credentials import CredentialError, CredentialReference
+from db_semantic_mcp.setup.files import SetupError, atomic_write
 
 
 def test_keyring_round_trip_without_password_in_reference(monkeypatch, tmp_path):
@@ -99,7 +99,7 @@ def test_cooperating_writers_cannot_overwrite_same_snapshot(tmp_path):
 
 
 def test_rollback_never_deletes_replacement_with_identical_bytes(tmp_path):
-    from sqlserver_semantic_mcp.setup.files import restore_owned
+    from db_semantic_mcp.setup.files import restore_owned
 
     path = tmp_path / "policy.json"
     receipt = {}

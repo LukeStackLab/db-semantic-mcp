@@ -4,19 +4,19 @@ import json
 
 import pytest
 
-from sqlserver_semantic_mcp import profiles
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.server import app as server
-from sqlserver_semantic_mcp.server.tools import register_all
+from db_semantic_mcp import profiles
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.server import app as server
+from db_semantic_mcp.server.tools import register_all
 
 RETIRED = {"detail", "response_mode", "return_mode", "token_budget_hint"}
 
 
 def test_no_tool_schema_exposes_retired_arguments(monkeypatch, tmp_path):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "d")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "d")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "c.db"))
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
     server._TOOL_REGISTRY.clear()
@@ -46,7 +46,7 @@ def test_profile_rejects_tiny_byte_cap():
 
 
 def test_describe_table_projection_is_single_full_shape():
-    from sqlserver_semantic_mcp.server.tools.metadata import _project_describe_table
+    from db_semantic_mcp.server.tools.metadata import _project_describe_table
 
     cols = [{"column_name": f"c{i}", "sql_type": "int", "description": "d"} for i in range(5)]
     out = _project_describe_table(

@@ -5,12 +5,12 @@ import pytest
 
 @pytest.fixture
 def cache_with_tables(tmp_path, monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
     return str(tmp_path / "t.db")
@@ -18,12 +18,12 @@ def cache_with_tables(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_list_tables_schema_filter_single(cache_with_tables, monkeypatch):
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )
-    from sqlserver_semantic_mcp.services import metadata_service
+    from db_semantic_mcp.services import metadata_service
 
     await init_store(cache_with_tables)
     snap = StructuralSnapshot(
@@ -50,12 +50,12 @@ async def test_list_tables_schema_filter_single(cache_with_tables, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_list_tables_schema_filter_multiple(cache_with_tables):
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )
-    from sqlserver_semantic_mcp.services import metadata_service
+    from db_semantic_mcp.services import metadata_service
 
     await init_store(cache_with_tables)
     snap = StructuralSnapshot(
@@ -80,12 +80,12 @@ async def test_list_tables_schema_filter_multiple(cache_with_tables):
 
 @pytest.mark.asyncio
 async def test_list_tables_keyword_filter(cache_with_tables):
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )
-    from sqlserver_semantic_mcp.services import metadata_service
+    from db_semantic_mcp.services import metadata_service
 
     await init_store(cache_with_tables)
     snap = StructuralSnapshot(
@@ -110,12 +110,12 @@ async def test_list_tables_keyword_filter(cache_with_tables):
 
 @pytest.mark.asyncio
 async def test_list_tables_schema_plus_keyword_is_and(cache_with_tables):
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )
-    from sqlserver_semantic_mcp.services import metadata_service
+    from db_semantic_mcp.services import metadata_service
 
     await init_store(cache_with_tables)
     snap = StructuralSnapshot(
@@ -141,12 +141,12 @@ async def test_list_tables_schema_plus_keyword_is_and(cache_with_tables):
 
 @pytest.mark.asyncio
 async def test_get_dependency_chain_schema_filter(cache_with_tables):
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )
-    from sqlserver_semantic_mcp.services import relationship_service
+    from db_semantic_mcp.services import relationship_service
 
     await init_store(cache_with_tables)
     # A --fk--> B (same schema), A --fk--> X (cross schema)
@@ -192,7 +192,7 @@ async def test_get_dependency_chain_schema_filter(cache_with_tables):
 async def test_detect_lookup_tables_confidence_min(cache_with_tables):
     from unittest.mock import patch
 
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.services import semantic_service
 
     async def fake_classify(db_path, database, schema, table, *, force=False):
         # Return varying confidences per table
@@ -202,8 +202,8 @@ async def test_detect_lookup_tables_confidence_min(cache_with_tables):
             return {"type": "lookup", "confidence": 0.3, "reasons": []}
         return {"type": "dimension", "confidence": 0.5, "reasons": []}
 
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )

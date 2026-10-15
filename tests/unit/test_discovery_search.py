@@ -1,7 +1,7 @@
 import pytest
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.workflows.discovery_flow import _score, _tokenize, discover_relevant_tables
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.workflows.discovery_flow import _score, _tokenize, discover_relevant_tables
 
 
 def test_discovery_terms_are_unique_and_qualified_match_ranks_first():
@@ -13,11 +13,11 @@ def test_discovery_terms_are_unique_and_qualified_match_ranks_first():
 
 @pytest.mark.asyncio
 async def test_chinese_alias_description_and_policy_search(tmp_path, monkeypatch):
-    from sqlserver_semantic_mcp.workflows import discovery_flow
+    from db_semantic_mcp.workflows import discovery_flow
 
     cfg = Config.model_construct(
-        mssql_server="fake",
-        mssql_database="db",
+        server="fake",
+        database="db",
         cache_path=str(tmp_path / "fake"),
         discovery_aliases={"供應商": ["vendor"]},
     )
@@ -44,9 +44,9 @@ async def test_chinese_alias_description_and_policy_search(tmp_path, monkeypatch
 
 @pytest.mark.asyncio
 async def test_qualified_exact_match_wins_when_scores_saturate_and_limit_truncates(tmp_path, monkeypatch):
-    from sqlserver_semantic_mcp.workflows import discovery_flow
+    from db_semantic_mcp.workflows import discovery_flow
 
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db", cache_path=str(tmp_path / "fake"))
+    cfg = Config.model_construct(server="fake", database="db", cache_path=str(tmp_path / "fake"))
     docs = [
         {"schema_name": "aaa", "table_name": "CustomerStatus", "description": "total amount"},
         {"schema_name": "sales", "table_name": "Orders"},

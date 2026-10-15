@@ -3,13 +3,13 @@ import json
 import pytest
 import tomlkit
 
-from sqlserver_semantic_mcp.setup.clients import (
+from db_semantic_mcp.setup.clients import (
     ClientTarget,
     merge_servers,
     register_servers,
     server_entry,
 )
-from sqlserver_semantic_mcp.setup.files import SetupError
+from db_semantic_mcp.setup.files import SetupError
 
 
 @pytest.mark.parametrize("format", ["json", "toml"])

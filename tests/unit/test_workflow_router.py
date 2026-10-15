@@ -2,17 +2,17 @@
 
 import pytest
 
-from sqlserver_semantic_mcp.config import reset_config
-from sqlserver_semantic_mcp.services.policy_service import PolicyService
-from sqlserver_semantic_mcp.workflows.router import route_query
+from db_semantic_mcp.config import reset_config
+from db_semantic_mcp.services.policy_service import PolicyService
+from db_semantic_mcp.workflows.router import route_query
 
 
 @pytest.fixture
 def policy(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     reset_config()
     svc = PolicyService()
     svc.load()
@@ -51,7 +51,7 @@ def test_disallowed_drop_routes_to_direct_validate(policy):
     ],
 )
 def test_route_query_parses_ast_exactly_once(policy, monkeypatch, sql, route):
-    from sqlserver_semantic_mcp.policy.intents.ast_analyzer import _StrictTSQL
+    from db_semantic_mcp.policy.intents.ast_analyzer import _StrictTSQL
 
     call_count = 0
     original_parse = _StrictTSQL.parse
@@ -67,10 +67,10 @@ def test_route_query_parses_ast_exactly_once(policy, monkeypatch, sql, route):
 
 
 def test_regex_routing_still_authorizes_with_ast():
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.policy.models import PolicyProfile
 
-    cfg = Config(_env_file=None, mssql_server="x", mssql_database="x", intent_analyzer="regex")
+    cfg = Config(_env_file=None, server="x", database="x", intent_analyzer="regex")
     service = PolicyService(cfg)
     service._policy = PolicyProfile(profile_name="scoped", scope={"denied_tables": ["dbo.Secret"]})
     sql = "SELECT dbo.Secret(1) FROM dbo.Public"

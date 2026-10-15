@@ -2,14 +2,14 @@ import json
 
 import pytest
 
-from sqlserver_semantic_mcp.config import reset_config
-from sqlserver_semantic_mcp.services.policy_service import PolicyService
+from db_semantic_mcp.config import reset_config
+from db_semantic_mcp.services.policy_service import PolicyService
 
 
 def test_service_initialises_with_builtin(monkeypatch):
     monkeypatch.delenv("SEMANTIC_MCP_POLICY_FILE", raising=False)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
     reset_config()
     svc = PolicyService()
     svc.load()
@@ -17,8 +17,8 @@ def test_service_initialises_with_builtin(monkeypatch):
 
 
 def test_validate_select(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
     reset_config()
     svc = PolicyService()
     svc.load()
@@ -28,8 +28,8 @@ def test_validate_select(monkeypatch):
 
 
 def test_validate_blocked(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
     reset_config()
     svc = PolicyService()
     svc.load()
@@ -41,8 +41,8 @@ def test_reload(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # isolate from local .env
     pf = tmp_path / "p.json"
     pf.write_text(json.dumps({"active_profile": "ro", "profiles": {"ro": {"profile_name": "ro"}}}))
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
     monkeypatch.setenv("SEMANTIC_MCP_POLICY_FILE", str(pf))
     monkeypatch.delenv("SEMANTIC_MCP_POLICY_PROFILE", raising=False)
     reset_config()
@@ -62,14 +62,14 @@ def test_reload(tmp_path, monkeypatch):
     ],
 )
 def test_validation_masks_and_scans_keywords_once(mocker, connection, write, sql):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
-    from sqlserver_semantic_mcp.services import policy_service
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.services import policy_service
 
     cfg = Config(
         _env_file=None,
-        mssql_server="x",
-        mssql_database="x",
+        server="x",
+        database="x",
         connection_name=connection,
         policy_profile="read_write_safe" if write else "readonly",
     )

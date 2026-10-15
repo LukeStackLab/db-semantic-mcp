@@ -1,11 +1,11 @@
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     write_structural_snapshot,
 )
-from sqlserver_semantic_mcp.services.semantic_service import (
+from db_semantic_mcp.services.semantic_service import (
     analyze_columns,
     classify_table,
     detect_lookup_tables,
@@ -90,9 +90,9 @@ async def test_detect_lookup_tables(tmp_path):
 
 
 async def _scoped_setup(tmp_path):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.services.policy_service import PolicyService
 
     path = str(tmp_path / "scope.db")
     await init_store(path)
@@ -115,7 +115,7 @@ async def _scoped_setup(tmp_path):
             ],
         ),
     )
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db", cache_path=path)
+    cfg = Config.model_construct(server="fake", database="db", cache_path=path)
     policy = PolicyService(cfg)
     policy._policy = PolicyProfile(profile_name="readonly", scope={"allowed_schemas": ["dbo"]})
     return path, cfg, policy
@@ -135,12 +135,12 @@ async def test_scope_classification_resource_order_does_not_reuse_or_poison_cach
 
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
-    from sqlserver_semantic_mcp.server.resources import schema as resources
-    from sqlserver_semantic_mcp.services import metadata_service
+    from db_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
+    from db_semantic_mcp.server.resources import schema as resources
+    from db_semantic_mcp.services import metadata_service
 
     path, cfg, policy = await _scoped_setup(tmp_path)
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.policy.models import PolicyProfile
 
     policy._policy = PolicyProfile(profile_name="readonly", scope=scope)
     if warm_trusted:
@@ -161,10 +161,10 @@ async def test_scope_classification_resource_order_does_not_reuse_or_poison_cach
 async def test_scoped_lookup_summary_columns_and_join_score_use_authorized_fks(tmp_path):
     from types import SimpleNamespace
 
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
-    from sqlserver_semantic_mcp.server.tools.relationship import _score_path
-    from sqlserver_semantic_mcp.services.semantic_service import summarize_for_joining
-    from sqlserver_semantic_mcp.workflows.discovery_flow import discover_relevant_tables
+    from db_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
+    from db_semantic_mcp.server.tools.relationship import _score_path
+    from db_semantic_mcp.services.semantic_service import summarize_for_joining
+    from db_semantic_mcp.workflows.discovery_flow import discover_relevant_tables
 
     path, cfg, policy = await _scoped_setup(tmp_path)
     await classify_table(path, "db", "dbo", "T")
@@ -191,7 +191,7 @@ async def test_scoped_lookup_summary_columns_and_join_score_use_authorized_fks(t
 @pytest.mark.asyncio
 @pytest.mark.parametrize("force", [False, True])
 async def test_scoped_classification_and_columns_do_not_read_shared_analysis(tmp_path, monkeypatch, force):
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.services import semantic_service
 
     path, _, policy = await _scoped_setup(tmp_path)
 
@@ -207,8 +207,8 @@ async def test_scoped_classification_and_columns_do_not_read_shared_analysis(tmp
 @pytest.mark.asyncio
 @pytest.mark.parametrize("database_only", [False, True])
 async def test_unrestricted_policy_reuses_classification_cache(tmp_path, monkeypatch, database_only):
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
-    from sqlserver_semantic_mcp.services import metadata_service, semantic_service
+    from db_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.services import metadata_service, semantic_service
 
     path, _, policy = await _scoped_setup(tmp_path)
     policy._policy = PolicyProfile(
@@ -233,9 +233,9 @@ async def test_policy_reload_during_classification_does_not_poison_shared_cache(
 ):
     import asyncio
 
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
+    from db_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.services import semantic_service
 
     path, _, policy = await _scoped_setup(tmp_path)
     policy._policy = PolicyProfile(profile_name="readonly")
@@ -291,9 +291,9 @@ async def test_database_scope_reload_reauthorizes_source_without_poisoning_cache
 ):
     import asyncio
 
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.infrastructure.cache.semantic import get_table_analysis
+    from db_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.services import semantic_service
 
     path, _, policy = await _scoped_setup(tmp_path)
     policy._policy = PolicyProfile(

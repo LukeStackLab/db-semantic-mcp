@@ -2,14 +2,14 @@
 
 import pytest
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.policy.intents.ast_analyzer import AstIntentAnalyzer
-from sqlserver_semantic_mcp.services.policy_service import PolicyService
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.policy.intents.ast_analyzer import AstIntentAnalyzer
+from db_semantic_mcp.services.policy_service import PolicyService
 
 
 @pytest.fixture
 def service():
-    cfg = Config(_env_file=None, mssql_server="s", mssql_database="d", mssql_user="u", mssql_password="p")
+    cfg = Config(_env_file=None, server="s", database="d", user="u", password="p")
     svc = PolicyService(cfg)
     svc.load()
     return svc
@@ -74,8 +74,8 @@ def test_variable_preamble_abuse_is_refused(sql):
 
 
 def test_variable_initializer_metadata_function_respects_scope():
-    from sqlserver_semantic_mcp.policy.enforcer import enforce
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.policy.enforcer import enforce
+    from db_semantic_mcp.policy.models import PolicyProfile
 
     intent = AstIntentAnalyzer().analyze("DECLARE @a int = OBJECT_ID('x'); SELECT 1")
     restricted = PolicyProfile(profile_name="r", scope={"denied_tables": ["dbo.Secret"]})
@@ -86,13 +86,13 @@ def test_variable_initializer_metadata_function_respects_scope():
 def test_declare_batch_executes_as_one_statement(service, monkeypatch):
     from unittest.mock import MagicMock
 
-    from sqlserver_semantic_mcp.services.query_service import QueryService
+    from db_semantic_mcp.services.query_service import QueryService
 
     opened = MagicMock()
     cursor = opened.return_value.__enter__.return_value.cursor.return_value
     cursor.description = [("id",)]
     cursor.fetchmany.return_value = [(1,)]
-    monkeypatch.setattr("sqlserver_semantic_mcp.services.query_service.open_connection", opened)
+    monkeypatch.setattr("db_semantic_mcp.services.query_service.open_connection", opened)
     sql = "DECLARE @a int = 1; SELECT id FROM dbo.T WHERE id = @a"
     result = QueryService(service, service._cfg).execute_query(sql)
     assert result["executed"] is True and result["rows"] == [[1]]

@@ -1,9 +1,9 @@
 import aiosqlite
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import StructuralSnapshot, write_structural_snapshot
-from sqlserver_semantic_mcp.services import metadata_service
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import StructuralSnapshot, write_structural_snapshot
+from db_semantic_mcp.services import metadata_service
 
 
 class LimitedPolicy:
@@ -86,7 +86,7 @@ async def test_selected_columns_validate_and_mark_omissions(tmp_path):
 
 
 def test_selected_columns_preserve_compound_join_context():
-    from sqlserver_semantic_mcp.server.tools.metadata import _project_describe_table
+    from db_semantic_mcp.server.tools.metadata import _project_describe_table
 
     full = {
         "schema_name": "dbo",
@@ -104,7 +104,7 @@ def test_selected_columns_preserve_compound_join_context():
 
 @pytest.mark.asyncio
 async def test_bundle_keeps_all_key_column_types_beyond_display_cap(monkeypatch):
-    from sqlserver_semantic_mcp.workflows import bundle
+    from db_semantic_mcp.workflows import bundle
 
     columns = [{"column_name": name, "data_type": "int"} for name in [*(f"p{i}" for i in range(6)), "fa", "fb"]]
     full = {
@@ -138,10 +138,10 @@ async def test_bundle_keeps_all_key_column_types_beyond_display_cap(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_warmup_persists_only_authorized_catalog(tmp_path, monkeypatch):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache import structural
-    from sqlserver_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints
-    from sqlserver_semantic_mcp.policy.models import PolicyFile, PolicyProfile
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache import structural
+    from db_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints
+    from db_semantic_mcp.policy.models import PolicyFile, PolicyProfile
 
     path = str(tmp_path / "scoped.db")
     policy_file = tmp_path / "policy.json"
@@ -151,7 +151,7 @@ async def test_warmup_persists_only_authorized_catalog(tmp_path, monkeypatch):
         ).model_dump_json()
     )
     cfg = Config.model_construct(
-        mssql_server="fake", mssql_database="db", cache_path=path, policy_file=str(policy_file)
+        server="fake", database="db", cache_path=path, policy_file=str(policy_file)
     )
     await init_store(path)
     snap = StructuralSnapshot(
@@ -183,10 +183,10 @@ async def test_resource_calls_revalidation_and_preserves_payload_on_freshness_er
 
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.server.resources import schema
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.server.resources import schema
 
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db", cache_enabled=True)
+    cfg = Config.model_construct(server="fake", database="db", cache_enabled=True)
     monkeypatch.setattr(schema, "get_context", lambda: SimpleNamespace(cfg=cfg))
     monkeypatch.setattr(schema, "_read_resource_payload", AsyncMock(return_value='{"found":true}'))
     schedule = AsyncMock()
@@ -200,8 +200,8 @@ async def test_resource_calls_revalidation_and_preserves_payload_on_freshness_er
 
 @pytest.mark.asyncio
 async def test_old_nonlookup_classification_recomputed_for_compound_fk(tmp_path):
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import upsert_table_analysis
-    from sqlserver_semantic_mcp.services.semantic_service import detect_lookup_tables
+    from db_semantic_mcp.infrastructure.cache.semantic import upsert_table_analysis
+    from db_semantic_mcp.services.semantic_service import detect_lookup_tables
 
     path = str(tmp_path / "old-classifier.db")
     await init_store(path)
@@ -240,7 +240,7 @@ async def test_old_nonlookup_classification_recomputed_for_compound_fk(tmp_path)
 
 @pytest.mark.asyncio
 async def test_scoped_describe_and_lookup_do_not_read_shared_classification(tmp_path, monkeypatch):
-    from sqlserver_semantic_mcp.services.semantic_service import detect_lookup_tables
+    from db_semantic_mcp.services.semantic_service import detect_lookup_tables
 
     path = await make_store(tmp_path)
     connect = aiosqlite.connect

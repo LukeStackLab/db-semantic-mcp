@@ -1,13 +1,13 @@
 def test_registrations_load(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -36,15 +36,15 @@ def test_registrations_load(monkeypatch):
 
 
 def test_query_group_consolidated(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -55,15 +55,15 @@ def test_query_group_consolidated(monkeypatch):
 
 
 def test_get_columns_tool_removed(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -73,15 +73,15 @@ def test_get_columns_tool_removed(monkeypatch):
 
 
 def test_classify_and_analyze_tools_removed(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -92,15 +92,15 @@ def test_classify_and_analyze_tools_removed(monkeypatch):
 
 
 def test_summarize_table_tool_removed(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -110,15 +110,15 @@ def test_summarize_table_tool_removed(monkeypatch):
 
 
 def test_score_join_candidate_tool_removed(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -128,15 +128,15 @@ def test_score_join_candidate_tool_removed(monkeypatch):
 
 
 def test_object_tools_consolidated(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -147,15 +147,15 @@ def test_object_tools_consolidated(monkeypatch):
 
 
 def test_policy_tools_consolidated(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -166,15 +166,15 @@ def test_policy_tools_consolidated(monkeypatch):
 
 
 def test_metrics_tools_consolidated(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -185,18 +185,18 @@ def test_metrics_tools_consolidated(monkeypatch):
 
 
 async def test_meta_tools_removed_bundle_resource_kept(monkeypatch, tmp_path):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "wiring.db"))
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY, reset_context
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY, reset_context
 
     reset_context()
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -204,14 +204,14 @@ async def test_meta_tools_removed_bundle_resource_kept(monkeypatch, tmp_path):
     assert "suggest_next_tool" not in names
     assert "bundle_context_for_next_step" not in names
 
-    from sqlserver_semantic_mcp.config import get_config
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.config import get_config
+    from db_semantic_mcp.infrastructure.cache.store import init_store
 
     await init_store(get_config().cache_path)
 
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.server.resources import schema as res
+    from db_semantic_mcp.server.resources import schema as res
 
     body = await res.read_resource(AnyUrl("semantic://bundle/joining/dbo.Orders"))
     assert body is not None  # resource still works
@@ -234,15 +234,15 @@ EXPECTED_TOOLS = {
 
 
 def test_exactly_twelve_tools(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     _TOOL_REGISTRY.clear()
     register_all()
@@ -251,16 +251,16 @@ def test_exactly_twelve_tools(monkeypatch):
 
 
 def test_duplicate_tool_registration_raises(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
     from mcp.types import Tool
 
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY, register_tool
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY, register_tool
 
     async def handler(args):
         return {"ok": True}

@@ -1,10 +1,10 @@
 import pytest
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.profiles import ConnectionProfile, config_for_profile
-from sqlserver_semantic_mcp.server import app as server
-from sqlserver_semantic_mcp.server.prompts import registry
-from sqlserver_semantic_mcp.server.tools import register_all
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.profiles import ConnectionProfile, config_for_profile
+from db_semantic_mcp.server import app as server
+from db_semantic_mcp.server.prompts import registry
+from db_semantic_mcp.server.tools import register_all
 
 
 @pytest.mark.parametrize(
@@ -15,8 +15,8 @@ from sqlserver_semantic_mcp.server.tools import register_all
     ],
 )
 def test_named_profiles_register_only_selected_tools(profile, expected, monkeypatch):
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db", tool_profile=profile)
-    monkeypatch.setattr("sqlserver_semantic_mcp.config._config", cfg)
+    cfg = Config.model_construct(server="fake", database="db", tool_profile=profile)
+    monkeypatch.setattr("db_semantic_mcp.config._config", cfg)
     monkeypatch.setattr(server, "_TOOL_REGISTRY", {})
     register_all()
     assert set(server._TOOL_REGISTRY) == expected

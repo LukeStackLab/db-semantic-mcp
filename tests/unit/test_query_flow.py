@@ -4,18 +4,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sqlserver_semantic_mcp.config import get_config, reset_config
-from sqlserver_semantic_mcp.services.policy_service import PolicyService
-from sqlserver_semantic_mcp.services.query_service import QueryService
-from sqlserver_semantic_mcp.workflows.query_flow import plan_or_execute_query
+from db_semantic_mcp.config import get_config, reset_config
+from db_semantic_mcp.services.policy_service import PolicyService
+from db_semantic_mcp.services.query_service import QueryService
+from db_semantic_mcp.workflows.query_flow import plan_or_execute_query
 
 
 @pytest.fixture
 def ctx(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     reset_config()
     cfg = get_config()
     policy = PolicyService(cfg)
@@ -52,7 +52,7 @@ def test_validate_mode_includes_risk(ctx):
     assert any(r["kind"] == "payload_risk" for r in d["risks"])
 
 
-@patch("sqlserver_semantic_mcp.services.query_service.open_connection")
+@patch("db_semantic_mcp.services.query_service.open_connection")
 def test_validate_only_alias_removed(mock_open, ctx):
     # Old mode name no longer short-circuits — falls through to auto routing.
     conn = MagicMock()
@@ -112,7 +112,7 @@ def test_natural_language_routes_to_discovery(ctx):
     )
 
 
-@patch("sqlserver_semantic_mcp.services.query_service.open_connection")
+@patch("db_semantic_mcp.services.query_service.open_connection")
 def test_direct_execute_happy_path(mock_open, ctx):
     conn = MagicMock()
     cursor = MagicMock()
@@ -136,7 +136,7 @@ def test_direct_execute_happy_path(mock_open, ctx):
     assert "validation" not in env["data"]
 
 
-@patch("sqlserver_semantic_mcp.services.query_service.open_connection")
+@patch("db_semantic_mcp.services.query_service.open_connection")
 def test_small_result_is_complete_and_exact(mock_open, ctx):
     conn = MagicMock()
     cursor = MagicMock()
@@ -160,7 +160,7 @@ def test_small_result_is_complete_and_exact(mock_open, ctx):
     assert data["columns"] == ["id"]
 
 
-@patch("sqlserver_semantic_mcp.services.query_service.open_connection")
+@patch("db_semantic_mcp.services.query_service.open_connection")
 def test_row_limit_truncates_and_reports_reason(mock_open, ctx):
     conn = MagicMock()
     cursor = MagicMock()

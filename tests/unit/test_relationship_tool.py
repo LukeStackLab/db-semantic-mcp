@@ -25,22 +25,22 @@ def _path_result(*, ambiguous=False, complete=True):
 
 @pytest.fixture
 def env(monkeypatch, tmp_path):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import reset_context
+    from db_semantic_mcp.server.app import reset_context
 
     reset_context()
 
 
 @pytest.mark.asyncio
 async def test_find_join_path_score_false_skips_classify(monkeypatch, env):
-    from sqlserver_semantic_mcp.server.tools import relationship
+    from db_semantic_mcp.server.tools import relationship
 
     async def fake_path(*a, **k):
         return _path_result()
@@ -53,7 +53,7 @@ async def test_find_join_path_score_false_skips_classify(monkeypatch, env):
 
     monkeypatch.setattr(relationship.relationship_service, "find_join_candidates", fake_path)
     monkeypatch.setattr(
-        "sqlserver_semantic_mcp.services.semantic_service.classify_table",
+        "db_semantic_mcp.services.semantic_service.classify_table",
         fake_classify,
     )
 
@@ -64,7 +64,7 @@ async def test_find_join_path_score_false_skips_classify(monkeypatch, env):
 
 @pytest.mark.asyncio
 async def test_find_join_path_score_true_returns_confidence(monkeypatch, env):
-    from sqlserver_semantic_mcp.server.tools import relationship
+    from db_semantic_mcp.server.tools import relationship
 
     async def fake_path(*a, **k):
         return _path_result()
@@ -74,7 +74,7 @@ async def test_find_join_path_score_true_returns_confidence(monkeypatch, env):
 
     monkeypatch.setattr(relationship.relationship_service, "find_join_candidates", fake_path)
     monkeypatch.setattr(
-        "sqlserver_semantic_mcp.services.semantic_service.classify_table",
+        "db_semantic_mcp.services.semantic_service.classify_table",
         fake_classify,
     )
 
@@ -91,7 +91,7 @@ async def test_find_join_path_score_true_returns_confidence(monkeypatch, env):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("ambiguous,complete", [(True, True), (False, False), (False, True)])
 async def test_score_never_recommends_execution(monkeypatch, env, ambiguous, complete):
-    from sqlserver_semantic_mcp.server.tools import relationship
+    from db_semantic_mcp.server.tools import relationship
 
     async def fake_path(*args, **kwargs):
         return _path_result(ambiguous=ambiguous, complete=complete)
@@ -121,7 +121,7 @@ async def test_score_never_recommends_execution(monkeypatch, env, ambiguous, com
 async def test_relationship_tools_authorize_explicit_objects(monkeypatch, handler, args):
     from types import SimpleNamespace
 
-    from sqlserver_semantic_mcp.server.tools import relationship
+    from db_semantic_mcp.server.tools import relationship
 
     class Policy:
         def authorize_object(self, schema, name, database=""):
@@ -132,7 +132,7 @@ async def test_relationship_tools_authorize_explicit_objects(monkeypatch, handle
         relationship,
         "get_context",
         lambda: SimpleNamespace(
-            cfg=SimpleNamespace(mssql_database="db"),
+            cfg=SimpleNamespace(database="db"),
             policy=Policy(),
         ),
     )

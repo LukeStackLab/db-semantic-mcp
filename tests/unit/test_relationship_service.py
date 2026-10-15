@@ -1,11 +1,11 @@
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     write_structural_snapshot,
 )
-from sqlserver_semantic_mcp.services.relationship_service import (
+from db_semantic_mcp.services.relationship_service import (
     find_join_path,
     get_dependency_chain,
     get_table_relationships,

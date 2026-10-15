@@ -1,6 +1,6 @@
 import json
 
-from sqlserver_semantic_mcp.server.compact import compact
+from db_semantic_mcp.server.compact import compact
 
 
 def test_r1_drops_none_empty_false():

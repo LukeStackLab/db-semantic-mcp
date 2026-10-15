@@ -1,11 +1,11 @@
 <div align="center">
 
-# sqlserver-semantic-mcp
+# db-semantic-mcp
 
 **Give AI agents MCP tools to explore SQL Server, find table relationships and query data within configured permissions.**
 
-[![PyPI](https://img.shields.io/pypi/v/sqlserver-semantic-mcp?color=blue&label=PyPI)](https://pypi.org/project/sqlserver-semantic-mcp/)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://pypi.org/project/sqlserver-semantic-mcp/)
+![Version](https://img.shields.io/badge/version-0.8.0-blue)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP-8A2BE2)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![SQL Server](https://img.shields.io/badge/SQL%20Server-2017%2B-CC2927?logo=microsoftsqlserver&logoColor=white)](#quick-installation)
@@ -49,9 +49,11 @@ Open a new terminal after installation. See the [official uv installation guide]
 
 These commands work on Windows, macOS and Linux. If you already have the source, run the last command from its directory.
 
+The product and CLI are `db-semantic-mcp`; the Python distribution is `lukestack-db-semantic-mcp`. Install this release from source. The GitHub repository URL retains its existing name.
+
 ```bash
-git clone https://github.com/LukeStackLab/sqlserver-semantic-mcp.git
-cd sqlserver-semantic-mcp
+git clone https://github.com/LukeStackLab/sqlserver-semantic-mcp.git db-semantic-mcp
+cd db-semantic-mcp
 uv tool install --python 3.11 --reinstall .
 ```
 
@@ -62,7 +64,7 @@ Use a source version that includes `setup`. uv downloads Python when needed and 
 For Claude Code, first change to the project where you want to use the MCP server. The wizard writes that project's `.mcp.json`.
 
 ```bash
-sqlserver-semantic-mcp setup
+db-semantic-mcp setup
 ```
 
 The terminal prompts are currently in Traditional Chinese.
@@ -142,7 +144,7 @@ When a write exceeds `max_rows_affected`, fixed connection profiles (wizard-crea
 `plan_or_execute_query(validate_result_schema=true)` optionally describes SQL Server result metadata before execution. It adds a DB round trip, has limitations such as temporary tables, and does not prove business correctness. It is off by default.
 
 ```bash
-sqlserver-semantic-mcp setup --tool-profile explore
+db-semantic-mcp setup --tool-profile explore
 ```
 
 | Profile | Tools | Purpose |
@@ -180,9 +182,9 @@ Each profile lives in `connections/<MCP name>/` and contains `connection.json`, 
 
 | Platform | Default profile root |
 |---|---|
-| macOS | `~/Library/Application Support/sqlserver-semantic-mcp/connections/` |
-| Windows | `%APPDATA%\sqlserver-semantic-mcp\connections\` |
-| Linux | `$XDG_CONFIG_HOME/sqlserver-semantic-mcp/connections/`; defaults to `~/.config/sqlserver-semantic-mcp/connections/` |
+| macOS | `~/Library/Application Support/db-semantic-mcp/connections/` |
+| Windows | `%APPDATA%\db-semantic-mcp\connections\` |
+| Linux | `$XDG_CONFIG_HOME/db-semantic-mcp/connections/`; defaults to `~/.config/db-semantic-mcp/connections/` |
 
 On macOS / Linux, an unavailable keyring can be replaced by a plaintext credential file only with explicit consent, using directory mode `0700` and file mode `0600`. Windows uses the system keyring. Passwords are never written to client settings or `connection.json`.
 
@@ -195,7 +197,7 @@ On macOS / Linux, an unavailable keyring can be replaced by a plaintext credenti
 - **Check a connection**: replace the placeholder below with the full `connection.json` path printed by the wizard.
 
 ```bash
-sqlserver-semantic-mcp doctor --config "PATH_TO_CONNECTION_JSON"
+db-semantic-mcp doctor --config "PATH_TO_CONNECTION_JSON"
 ```
 
 Client entries use the Python environment created during installation. If you move or remove it, reinstall and rerun `setup`. To update an installed package, run `uv tool install --python 3.11 --reinstall .` from the updated source directory.

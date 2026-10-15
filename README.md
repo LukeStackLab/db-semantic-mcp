@@ -1,11 +1,11 @@
 <div align="center">
 
-# sqlserver-semantic-mcp
+# db-semantic-mcp
 
 **讓 AI Agent 探索 SQL Server、找出資料表關聯，並在設定的權限內查詢資料。**
 
-[![PyPI](https://img.shields.io/pypi/v/sqlserver-semantic-mcp?color=blue&label=PyPI)](https://pypi.org/project/sqlserver-semantic-mcp/)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://pypi.org/project/sqlserver-semantic-mcp/)
+![Version](https://img.shields.io/badge/version-0.8.0-blue)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP-8A2BE2)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![SQL Server](https://img.shields.io/badge/SQL%20Server-2017%2B-CC2927?logo=microsoftsqlserver&logoColor=white)](#快速安裝)
@@ -49,9 +49,11 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 以下指令適用於 Windows、macOS 與 Linux。若已取得本專案，直接在專案目錄執行最後一行。
 
+產品與 CLI 名稱為 `db-semantic-mcp`，Python distribution 名稱為 `lukestack-db-semantic-mcp`。此版本請從原始碼安裝。GitHub repository URL 保留既有名稱。
+
 ```bash
-git clone https://github.com/LukeStackLab/sqlserver-semantic-mcp.git
-cd sqlserver-semantic-mcp
+git clone https://github.com/LukeStackLab/sqlserver-semantic-mcp.git db-semantic-mcp
+cd db-semantic-mcp
 uv tool install --python 3.11 --reinstall .
 ```
 
@@ -62,7 +64,7 @@ uv tool install --python 3.11 --reinstall .
 若使用 Claude Code，先切換到要使用 MCP 的專案目錄，精靈會將設定寫入該專案的 `.mcp.json`。
 
 ```bash
-sqlserver-semantic-mcp setup
+db-semantic-mcp setup
 ```
 
 1. 選擇 MCP Client。只偵測到一個 Client 時，精靈會自動選用。
@@ -140,7 +142,7 @@ MCP 的 policy 不會授予 SQL Server 權限。每組連線應使用符合用�
 新連線可在安裝時選擇工具集合：
 
 ```bash
-sqlserver-semantic-mcp setup --tool-profile explore
+db-semantic-mcp setup --tool-profile explore
 ```
 
 | 集合 | 工具數 | 用途 |
@@ -180,9 +182,9 @@ SQL、metadata、resources、FK 與物件依賴共用 scope。`allowed_tables` �
 
 | 平台 | 預設配置根目錄 |
 |---|---|
-| macOS | `~/Library/Application Support/sqlserver-semantic-mcp/connections/` |
-| Windows | `%APPDATA%\sqlserver-semantic-mcp\connections\` |
-| Linux | `$XDG_CONFIG_HOME/sqlserver-semantic-mcp/connections/`；未設定時使用 `~/.config/sqlserver-semantic-mcp/connections/` |
+| macOS | `~/Library/Application Support/db-semantic-mcp/connections/` |
+| Windows | `%APPDATA%\db-semantic-mcp\connections\` |
+| Linux | `$XDG_CONFIG_HOME/db-semantic-mcp/connections/`；未設定時使用 `~/.config/db-semantic-mcp/connections/` |
 
 無法使用憑證庫時，macOS / Linux 可明確同意改用明碼憑證檔，目錄權限為 `0700`、檔案權限為 `0600`；Windows 使用系統憑證庫。密碼不寫入 Client 設定或 `connection.json`。
 
@@ -195,7 +197,7 @@ SQL、metadata、resources、FK 與物件依賴共用 scope。`allowed_tables` �
 - **檢查連線**：將下列路徑換成精靈顯示的 `connection.json` 完整路徑。
 
 ```bash
-sqlserver-semantic-mcp doctor --config "PATH_TO_CONNECTION_JSON"
+db-semantic-mcp doctor --config "PATH_TO_CONNECTION_JSON"
 ```
 
 Client 註冊會使用安裝時的 Python 環境。移除或搬動該環境後，需重新安裝並執行 `setup`。若要更新已安裝套件，在新版原始碼目錄執行 `uv tool install --python 3.11 --reinstall .`。

@@ -4,18 +4,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.policy.models import PolicyProfile
-from sqlserver_semantic_mcp.services.query_service import QueryService
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.policy.models import PolicyProfile
+from db_semantic_mcp.services.query_service import QueryService
 
 
 @pytest.fixture
 def setup_query():
-    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="db", mssql_user="u", mssql_password="password")
+    cfg = Config(_env_file=None, server="fake", database="db", user="u", password="password")
     policy = MagicMock()
     policy.current_policy.return_value = PolicyProfile(profile_name="readonly")
     policy.validate.return_value = {"allowed": True, "intent": {"primary_operation": "SELECT"}}
-    with patch("sqlserver_semantic_mcp.services.query_service.open_connection") as opened:
+    with patch("db_semantic_mcp.services.query_service.open_connection") as opened:
         conn = opened.return_value.__enter__.return_value
         cursor = conn.cursor.return_value
         cursor.description = [("value",)]
@@ -156,11 +156,11 @@ async def test_tool_runs_complete_query_lifecycle_in_one_worker(monkeypatch):
     from threading import get_ident
     from types import SimpleNamespace
 
-    from sqlserver_semantic_mcp.server.tools import query as query_tool
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
-    from sqlserver_semantic_mcp.workflows.facade import WorkflowFacade
+    from db_semantic_mcp.server.tools import query as query_tool
+    from db_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.workflows.facade import WorkflowFacade
 
-    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="db", mssql_user="u", mssql_password="p")
+    cfg = Config(_env_file=None, server="fake", database="db", user="u", password="p")
     policy = PolicyService(cfg)
     policy.load()
     service = QueryService(policy, cfg)
@@ -193,7 +193,7 @@ async def test_tool_runs_complete_query_lifecycle_in_one_worker(monkeypatch):
         finally:
             events.append(("connection_close", get_ident()))
 
-    monkeypatch.setattr("sqlserver_semantic_mcp.services.query_service.open_connection", opened)
+    monkeypatch.setattr("db_semantic_mcp.services.query_service.open_connection", opened)
     monkeypatch.setattr(
         query_tool, "get_context", lambda: SimpleNamespace(cfg=cfg, workflow=WorkflowFacade(cfg, policy, service))
     )

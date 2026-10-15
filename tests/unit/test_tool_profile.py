@@ -6,16 +6,16 @@ import pytest
 @pytest.fixture
 def base_env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
 
 
 def test_profile_defaults_to_all_registers_every_group(base_env):
-    from sqlserver_semantic_mcp.config import reset_config
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.config import reset_config
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     reset_config()
     _TOOL_REGISTRY.clear()
@@ -39,9 +39,9 @@ def test_profile_defaults_to_all_registers_every_group(base_env):
 
 def test_profile_metadata_only_registers_two_tools(base_env, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_TOOL_PROFILE", "metadata")
-    from sqlserver_semantic_mcp.config import reset_config
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.config import reset_config
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     reset_config()
     _TOOL_REGISTRY.clear()
@@ -56,9 +56,9 @@ def test_profile_metadata_only_registers_two_tools(base_env, monkeypatch):
 
 def test_profile_multiple_groups(base_env, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_TOOL_PROFILE", "metadata,semantic")
-    from sqlserver_semantic_mcp.config import reset_config
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.config import reset_config
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     reset_config()
     _TOOL_REGISTRY.clear()
@@ -73,9 +73,9 @@ def test_profile_multiple_groups(base_env, monkeypatch):
 
 def test_profile_unknown_group_raises(base_env, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_TOOL_PROFILE", "metadata,bogus")
-    from sqlserver_semantic_mcp.config import reset_config
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.config import reset_config
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     reset_config()
     _TOOL_REGISTRY.clear()
@@ -85,9 +85,9 @@ def test_profile_unknown_group_raises(base_env, monkeypatch):
 
 def test_profile_empty_string_treated_as_all(base_env, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_TOOL_PROFILE", "")
-    from sqlserver_semantic_mcp.config import reset_config
-    from sqlserver_semantic_mcp.server.app import _TOOL_REGISTRY
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp.config import reset_config
+    from db_semantic_mcp.server.app import _TOOL_REGISTRY
+    from db_semantic_mcp.server.tools import register_all
 
     reset_config()
     _TOOL_REGISTRY.clear()

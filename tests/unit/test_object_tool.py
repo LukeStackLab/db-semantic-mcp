@@ -5,19 +5,19 @@ import pytest
 
 @pytest.fixture
 def env(monkeypatch, tmp_path):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
 
 
 @pytest.mark.asyncio
 async def test_describe_object_view_default_omits_definition_body(env):
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     fake = {
         "schema": "dbo",
@@ -39,7 +39,7 @@ async def test_describe_object_view_default_omits_definition_body(env):
 
 @pytest.mark.asyncio
 async def test_describe_object_include_definition_returns_full(env):
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     fake = {
         "schema": "dbo",
@@ -62,7 +62,7 @@ async def test_describe_object_include_definition_returns_full(env):
 
 @pytest.mark.asyncio
 async def test_describe_object_returns_reads_writes_and_definition_on_request(env):
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     fake = {
         "schema": "dbo",
@@ -84,7 +84,7 @@ async def test_describe_object_returns_reads_writes_and_definition_on_request(en
 
 @pytest.mark.asyncio
 async def test_describe_object_procedure_default_omits_definition_body(env):
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     fake = {
         "schema": "dbo",
@@ -105,7 +105,7 @@ async def test_describe_object_procedure_default_omits_definition_body(env):
 @pytest.mark.asyncio
 async def test_describe_object_handles_missing_definition(env):
     """When the object service returns an error/pending state with no definition."""
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     fake = {"status": "error", "error_message": "not found"}
     with patch.object(object_tool.object_service, "describe_object", new=AsyncMock(return_value=fake)):
@@ -118,7 +118,7 @@ async def test_describe_object_handles_missing_definition(env):
 @pytest.mark.asyncio
 async def test_describe_object_unified_types(monkeypatch, env):
     """VIEW / PROCEDURE / FUNCTION all route through the same handler."""
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     async def fake_describe(schema, name, object_type, cfg, policy=None):
         assert policy is not None
@@ -154,7 +154,7 @@ async def test_describe_object_unified_types(monkeypatch, env):
 @pytest.mark.asyncio
 async def test_describe_object_tool_dispatches_on_type_arg(monkeypatch, env):
     """The registered tool handler reads args['type'] to pick the object type."""
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     seen_types = []
 
@@ -181,10 +181,10 @@ async def test_describe_object_tool_dispatches_on_type_arg(monkeypatch, env):
 @pytest.mark.asyncio
 async def test_describe_object_definition_is_byte_capped(env, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_MAX_RESPONSE_BYTES", "1024")
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.tools import object_tool
+    from db_semantic_mcp.server.tools import object_tool
 
     fake = {
         "schema": "dbo",

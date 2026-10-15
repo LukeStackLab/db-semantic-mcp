@@ -2,21 +2,21 @@
 
 import pytest
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.policy.models import (
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.policy.models import (
     PolicyConstraints,
     PolicyOperations,
     PolicyProfile,
     PolicyScope,
 )
-from sqlserver_semantic_mcp.services.policy_service import PolicyService
+from db_semantic_mcp.services.policy_service import PolicyService
 
 
 def service(*, scope=None, operations=None, constraints=None, analyzer="regex"):
     svc = PolicyService(
         Config(
-            mssql_server="unused",
-            mssql_database="app",
+            server="unused",
+            database="app",
             intent_analyzer=analyzer,
             policy_file=None,
             policy_profile=None,
@@ -179,7 +179,7 @@ def test_qualified_denial_cannot_be_bypassed_with_unqualified_name():
 
 
 def test_database_scope_rejects_missing_database():
-    from sqlserver_semantic_mcp.policy.scope import object_allowed
+    from db_semantic_mcp.policy.scope import object_allowed
 
     assert not object_allowed(PolicyScope(allowed_databases=["app"]), "", "dbo", "Users")
 
@@ -191,14 +191,14 @@ def test_malformed_scope_entry_fails_closed():
 
 @pytest.mark.parametrize("value", ["dbo.T; SELECT 1", "dbo.F(1)", "dbo.T t", "dbo.T TABLESAMPLE(5)"])
 def test_object_name_split_rejects_extra_sql(value):
-    from sqlserver_semantic_mcp.policy.scope import split_object_name
+    from db_semantic_mcp.policy.scope import split_object_name
 
     with pytest.raises(ValueError):
         split_object_name(value)
 
 
 def test_object_name_split_preserves_decoded_identifiers():
-    from sqlserver_semantic_mcp.policy.scope import split_object_name
+    from db_semantic_mcp.policy.scope import split_object_name
 
     assert split_object_name("[app.db].[a.b].[x]]y]") == ("app.db", "a.b", "x]y")
 
@@ -318,7 +318,7 @@ def test_metadata_function_policy_respects_deny_only_scope_and_quoted_columns():
 def test_temporal_history_scope_is_unresolved_and_never_executed(analyzer, version):
     from unittest.mock import patch
 
-    from sqlserver_semantic_mcp.services.query_service import QueryService
+    from db_semantic_mcp.services.query_service import QueryService
 
     svc = service(
         analyzer=analyzer,
@@ -329,7 +329,7 @@ def test_temporal_history_scope_is_unresolved_and_never_executed(analyzer, versi
     )
     assert svc.validate("SELECT * FROM dbo.Users")["allowed"]
     sql = f"SELECT * FROM dbo.Users FOR SYSTEM_TIME {version}"
-    with patch("sqlserver_semantic_mcp.services.query_service.open_connection") as connect:
+    with patch("db_semantic_mcp.services.query_service.open_connection") as connect:
         result = QueryService(svc, svc._cfg).execute_query(sql)
     assert result["validation"]["allowed"] is False
     assert result["executed"] is False
@@ -347,13 +347,13 @@ def test_temporal_history_scope_is_unresolved_and_never_executed(analyzer, versi
 def test_external_ddl_cannot_be_authorized_as_local_target(analyzer, sql):
     from unittest.mock import patch
 
-    from sqlserver_semantic_mcp.services.query_service import QueryService
+    from db_semantic_mcp.services.query_service import QueryService
 
     svc = service(
         analyzer=analyzer, operations=PolicyOperations(create=True), scope=PolicyScope(allowed_tables=["dbo.Users"])
     )
     assert svc.validate("CREATE TABLE dbo.Users(Id INT)")["allowed"]
-    with patch("sqlserver_semantic_mcp.services.query_service.open_connection") as connect:
+    with patch("db_semantic_mcp.services.query_service.open_connection") as connect:
         result = QueryService(svc, svc._cfg).execute_query(sql)
     assert result["validation"]["allowed"] is False
     assert result["executed"] is False

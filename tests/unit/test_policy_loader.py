@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from sqlserver_semantic_mcp.policy.loader import (
+from db_semantic_mcp.policy.loader import (
     builtin_readonly,
     load_policy_from_file,
 )

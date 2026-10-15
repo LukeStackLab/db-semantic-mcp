@@ -3,12 +3,12 @@ from unittest.mock import MagicMock, patch
 import aiosqlite
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
+from db_semantic_mcp.infrastructure.cache.semantic import (
     get_table_analysis,
     upsert_table_analysis,
 )
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     compute_comment_hash,
     compute_object_hash,
@@ -204,7 +204,7 @@ def test_fetch_snapshot_from_server_uses_single_connection():
     ]
 
     with patch(
-        "sqlserver_semantic_mcp.infrastructure.cache.structural.open_connection",
+        "db_semantic_mcp.infrastructure.cache.structural.open_connection",
     ) as mock_open:
         mock_open.return_value.__enter__.return_value = conn
         snap = fetch_snapshot_from_server(cfg)
@@ -225,14 +225,14 @@ async def test_full_warmup_invalidates_changed_module_before_baseline(
     object_type,
     type_code,
 ):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
-    from sqlserver_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
-    from sqlserver_semantic_mcp.services import object_service
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache import revalidation, structural
+    from db_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
+    from db_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
+    from db_semantic_mcp.services import object_service
 
     db_path = str(tmp_path / "full.db")
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="testdb", cache_path=db_path)
+    cfg = Config.model_construct(server="fake", database="testdb", cache_path=db_path)
     await init_store(db_path)
     snap = StructuralSnapshot(
         tables=[],
@@ -285,9 +285,9 @@ async def test_full_warmup_invalidates_changed_module_before_baseline(
 
 @pytest.mark.asyncio
 async def test_full_snapshot_fingerprint_invalidation_rolls_back_with_baseline(tmp_path, monkeypatch):
-    from sqlserver_semantic_mcp.infrastructure.cache import structural
-    from sqlserver_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
+    from db_semantic_mcp.infrastructure.cache import structural
+    from db_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
+    from db_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
 
     db_path = str(tmp_path / "rollback.db")
     await init_store(db_path)
@@ -335,13 +335,13 @@ async def test_full_snapshot_fingerprint_invalidation_rolls_back_with_baseline(t
 
 @pytest.mark.asyncio
 async def test_full_warmup_dirties_only_changed_table_dependents(tmp_path, monkeypatch):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache import structural
-    from sqlserver_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache import structural
+    from db_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
+    from db_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
 
     db_path = str(tmp_path / "dependents.db")
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="testdb", cache_path=db_path)
+    cfg = Config.model_construct(server="fake", database="testdb", cache_path=db_path)
     await init_store(db_path)
     snap = StructuralSnapshot(
         tables=[("dbo", "Users")],
@@ -391,14 +391,14 @@ async def test_full_warmup_invalidates_legacy_definition_missing_module_baseline
     type_code,
     rollback,
 ):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache import structural
-    from sqlserver_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
-    from sqlserver_semantic_mcp.services import object_service
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache import structural
+    from db_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints, read_fingerprints
+    from db_semantic_mcp.infrastructure.cache.semantic import get_object_definition, upsert_object_definition
+    from db_semantic_mcp.services import object_service
 
     db_path = str(tmp_path / "legacy.db")
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="testdb", cache_path=db_path)
+    cfg = Config.model_construct(server="fake", database="testdb", cache_path=db_path)
     await init_store(db_path)
     snap = StructuralSnapshot(
         tables=[("dbo", "Users")],

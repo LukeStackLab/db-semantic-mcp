@@ -6,18 +6,18 @@ import pytest
 from mcp.types import Tool
 from pydantic import AnyUrl
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.policy.models import PolicyProfile
-from sqlserver_semantic_mcp.services.query_service import QueryService
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.policy.models import PolicyProfile
+from db_semantic_mcp.services.query_service import QueryService
 
 
 @pytest.fixture
 def cfg():
     return Config(
         _env_file=None,
-        mssql_server="s",
-        mssql_database="ERP",
-        mssql_password="NEVER_ECHO",
+        server="s",
+        database="ERP",
+        password="NEVER_ECHO",
         connection_name="erp",
         metrics_enabled=False,
         cache_enabled=False,
@@ -26,7 +26,7 @@ def cfg():
 
 @pytest.mark.asyncio
 async def test_tool_result_identifies_source_and_keeps_false_status(cfg, monkeypatch):
-    from sqlserver_semantic_mcp.server import app as mod
+    from db_semantic_mcp.server import app as mod
 
     monkeypatch.setattr(mod, "get_config", lambda: cfg)
     tool = Tool(name="test_source", inputSchema={"type": "object"})
@@ -43,7 +43,7 @@ async def test_tool_result_identifies_source_and_keeps_false_status(cfg, monkeyp
 
 @pytest.mark.asyncio
 async def test_tool_error_redacts_password_and_identifies_source(cfg, monkeypatch, caplog):
-    from sqlserver_semantic_mcp.server import app as mod
+    from db_semantic_mcp.server import app as mod
 
     monkeypatch.setattr(mod, "get_config", lambda: cfg)
     tool = Tool(name="test_error_source", inputSchema={"type": "object"})
@@ -59,7 +59,7 @@ async def test_tool_error_redacts_password_and_identifies_source(cfg, monkeypatc
 
 @pytest.mark.asyncio
 async def test_resource_identifies_source(cfg, monkeypatch):
-    from sqlserver_semantic_mcp.server.resources import schema
+    from db_semantic_mcp.server.resources import schema
 
     monkeypatch.setattr(schema, "get_context", lambda: SimpleNamespace(cfg=cfg, policy=MagicMock()))
     monkeypatch.setattr(schema.metadata_service, "database_summary", AsyncMock(return_value={"table_count": 2}))
@@ -79,7 +79,7 @@ def test_query_row_request_cannot_exceed_policy_cap(cfg, monkeypatch):
     cursor = opened.return_value.__enter__.return_value.cursor.return_value
     cursor.description = [("id",)]
     cursor.fetchmany.return_value = [(1,), (2,), (3,)]
-    monkeypatch.setattr("sqlserver_semantic_mcp.services.query_service.open_connection", opened)
+    monkeypatch.setattr("db_semantic_mcp.services.query_service.open_connection", opened)
     result = QueryService(policy, cfg).execute_query("SELECT id FROM dbo.T", max_rows=999)
     cursor.fetchmany.assert_called_once_with(3)
     assert result["rows"] == [[1], [2]]
@@ -96,7 +96,7 @@ def test_profile_write_cannot_disable_strict_cap(cfg, monkeypatch):
     opened = MagicMock()
     conn = opened.return_value.__enter__.return_value
     conn.cursor.return_value.rowcount = 3
-    monkeypatch.setattr("sqlserver_semantic_mcp.services.query_service.open_connection", opened)
+    monkeypatch.setattr("db_semantic_mcp.services.query_service.open_connection", opened)
     result = QueryService(policy, cfg).execute_query("UPDATE dbo.T SET x=1 WHERE id=1", affected_rows_policy="report")
     assert result["executed"] is False
     conn.rollback.assert_called_once()

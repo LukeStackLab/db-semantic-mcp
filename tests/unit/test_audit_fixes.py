@@ -4,11 +4,11 @@ import json
 
 import pytest
 
-from sqlserver_semantic_mcp.domain.enums import SqlOperation
-from sqlserver_semantic_mcp.policy.analyzer import analyze_sql
-from sqlserver_semantic_mcp.policy.enforcer import enforce
-from sqlserver_semantic_mcp.policy.loader import load_policy_from_file
-from sqlserver_semantic_mcp.policy.models import (
+from db_semantic_mcp.domain.enums import SqlOperation
+from db_semantic_mcp.policy.analyzer import analyze_sql
+from db_semantic_mcp.policy.enforcer import enforce
+from db_semantic_mcp.policy.loader import load_policy_from_file
+from db_semantic_mcp.policy.models import (
     PolicyProfile,
     PolicyScope,
 )
@@ -92,22 +92,22 @@ def test_fix3_disallowed_schema_rejected():
 
 @pytest.mark.asyncio
 async def test_fix4_malformed_uri_raises_clear_error(monkeypatch, tmp_path):
-    from sqlserver_semantic_mcp.config import reset_config
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.config import reset_config
+    from db_semantic_mcp.infrastructure.cache.store import init_store
 
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
     reset_config()
 
-    from sqlserver_semantic_mcp.server.app import reset_context
+    from db_semantic_mcp.server.app import reset_context
 
     reset_context()
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.server.resources.schema import read_resource
+    from db_semantic_mcp.server.resources.schema import read_resource
 
     cfg_path = tmp_path / "t.db"
     await init_store(str(cfg_path))
@@ -121,12 +121,12 @@ async def test_fix4_malformed_uri_raises_clear_error(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_fix5_detect_lookup_uses_cache_on_second_call(tmp_path):
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )
-    from sqlserver_semantic_mcp.services.semantic_service import (
+    from db_semantic_mcp.services.semantic_service import (
         classify_table,
         detect_lookup_tables,
     )
@@ -155,7 +155,7 @@ async def test_fix5_detect_lookup_uses_cache_on_second_call(tmp_path):
     await classify_table(db_path, "db", "dbo", "Users")
 
     # detect_lookup_tables should now read from cache
-    import sqlserver_semantic_mcp.services.semantic_service as semsvc
+    import db_semantic_mcp.services.semantic_service as semsvc
 
     call_count = {"n": 0}
     original = semsvc._load_table_structure
@@ -181,7 +181,7 @@ async def test_fix5_detect_lookup_uses_cache_on_second_call(tmp_path):
 def test_fix6_background_has_exponential_backoff():
     import inspect
 
-    from sqlserver_semantic_mcp.infrastructure import background
+    from db_semantic_mcp.infrastructure import background
 
     src = inspect.getsource(background.background_fill_loop)
     assert "consecutive_errors" in src
@@ -195,21 +195,21 @@ def test_fix7_truncation_is_precise():
     import os
     from unittest.mock import MagicMock, patch
 
-    from sqlserver_semantic_mcp.config import reset_config
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
-    from sqlserver_semantic_mcp.services.query_service import QueryService
+    from db_semantic_mcp.config import reset_config
+    from db_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.services.query_service import QueryService
 
-    os.environ["SEMANTIC_MCP_MSSQL_SERVER"] = "x"
-    os.environ["SEMANTIC_MCP_MSSQL_DATABASE"] = "x"
-    os.environ["SEMANTIC_MCP_MSSQL_USER"] = "u"
-    os.environ["SEMANTIC_MCP_MSSQL_PASSWORD"] = "p"
+    os.environ["SEMANTIC_MCP_SERVER"] = "x"
+    os.environ["SEMANTIC_MCP_DATABASE"] = "x"
+    os.environ["SEMANTIC_MCP_USER"] = "u"
+    os.environ["SEMANTIC_MCP_PASSWORD"] = "p"
     reset_config()
 
     svc = PolicyService()
     svc.load()
     qs = QueryService(svc)
 
-    with patch("sqlserver_semantic_mcp.services.query_service.open_connection") as mock_open:
+    with patch("db_semantic_mcp.services.query_service.open_connection") as mock_open:
         conn = MagicMock()
         cursor = MagicMock()
         cursor.description = [("Id",)]

@@ -1,7 +1,7 @@
 import aiosqlite
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import (
+from db_semantic_mcp.infrastructure.cache.store import (
     SCHEMA_TABLES,
     init_store,
 )

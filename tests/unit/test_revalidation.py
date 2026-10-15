@@ -5,29 +5,29 @@ from unittest.mock import AsyncMock, patch
 import aiosqlite
 import pytest
 
-from sqlserver_semantic_mcp.config import get_config, reset_config
-from sqlserver_semantic_mcp.infrastructure.cache import revalidation
-from sqlserver_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints
-from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
+from db_semantic_mcp.config import get_config, reset_config
+from db_semantic_mcp.infrastructure.cache import revalidation
+from db_semantic_mcp.infrastructure.cache.probe import SchemaFingerprints
+from db_semantic_mcp.infrastructure.cache.semantic import (
     get_object_definition,
     upsert_object_definition,
 )
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     compute_object_hash,
 )
 
-MOD = "sqlserver_semantic_mcp.infrastructure.cache.revalidation"
+MOD = "db_semantic_mcp.infrastructure.cache.revalidation"
 
 
 @pytest.fixture
 def cfg(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
     reset_config()
     revalidation.reset_state()
@@ -45,16 +45,16 @@ def _fps(tables=None, objects=None, dependents=None) -> SchemaFingerprints:
 
 
 async def _seed_baseline(cfg, fps: SchemaFingerprints) -> None:
-    from sqlserver_semantic_mcp.infrastructure.cache.probe import (
+    from db_semantic_mcp.infrastructure.cache.probe import (
         write_fingerprints,
     )
 
     await init_store(cfg.cache_path)
     async with aiosqlite.connect(cfg.cache_path) as db:
-        await write_fingerprints(db, cfg.mssql_database, fps)
+        await write_fingerprints(db, cfg.database, fps)
         await db.execute(
             "INSERT OR REPLACE INTO schema_version VALUES (?,?,?,?,?)",
-            (cfg.mssql_database, "h", "o", "c", datetime.now(UTC).isoformat()),
+            (cfg.database, "h", "o", "c", datetime.now(UTC).isoformat()),
         )
         await db.commit()
 
@@ -114,7 +114,7 @@ async def test_drift_triggers_warmup_and_dependency_cascade(cfg):
     with (
         patch(f"{MOD}.fetch_fingerprints", return_value=fresh),
         patch(
-            "sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
+            "db_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
         ),
         patch(f"{MOD}.warmup_structural_cache", wraps=revalidation.warmup_structural_cache) as warmup,
     ):
@@ -159,7 +159,7 @@ async def test_changed_view_body_marks_object_dirty(cfg):
     with (
         patch(f"{MOD}.fetch_fingerprints", return_value=fresh),
         patch(
-            "sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
+            "db_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
         ),
     ):
         result = await revalidation.revalidate_if_stale(cfg)
@@ -380,7 +380,7 @@ async def test_failed_expired_snapshot_stays_stale_and_keeps_capture_time(cfg):
 
 @pytest.mark.asyncio
 async def test_comments_only_expiry_updates_persisted_descriptions(cfg):
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import StructuralSnapshot, write_structural_snapshot
+    from db_semantic_mcp.infrastructure.cache.structural import StructuralSnapshot, write_structural_snapshot
 
     fps = _fps(tables={("dbo", "Users"): "unchanged"})
     await init_store(cfg.cache_path)
@@ -399,7 +399,7 @@ async def test_comments_only_expiry_updates_persisted_descriptions(cfg):
     with (
         patch(f"{MOD}.fetch_fingerprints", return_value=fps),
         patch(
-            "sqlserver_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server",
+            "db_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server",
             return_value=new_snapshot,
         ),
     ):
@@ -538,7 +538,7 @@ async def test_cancelled_manual_waiter_does_not_cancel_shared_snapshot(cfg, monk
 async def test_cache_refresh_tool_uses_shared_manual_entry_point(cfg, monkeypatch):
     from types import SimpleNamespace
 
-    from sqlserver_semantic_mcp.server.tools import cache
+    from db_semantic_mcp.server.tools import cache
 
     refresh = AsyncMock(return_value={"structural_hash": "shared"})
     direct = AsyncMock(return_value={"structural_hash": "bypassed"})

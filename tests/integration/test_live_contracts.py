@@ -12,14 +12,14 @@ pytestmark = pytest.mark.integration
 def disposable_config():
     if os.getenv("SEMANTIC_MCP_DISPOSABLE_SQL_TESTS") != "1":
         pytest.skip("Explicit disposable SQL Server opt-in required")
-    from sqlserver_semantic_mcp.config import Config
+    from db_semantic_mcp.config import Config
 
     return Config()
 
 
 def test_live_scalar_and_result_metadata(disposable_config):
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
-    from sqlserver_semantic_mcp.services.query_service import QueryService
+    from db_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.services.query_service import QueryService
 
     policy = PolicyService(disposable_config)
     result = QueryService(policy, disposable_config).execute_query(
@@ -34,7 +34,7 @@ def test_live_scalar_and_result_metadata(disposable_config):
 def test_live_catalog_tuple_formats(disposable_config):
     import json
 
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import fetch_snapshot_from_server
+    from db_semantic_mcp.infrastructure.cache.structural import fetch_snapshot_from_server
 
     snapshot = fetch_snapshot_from_server(disposable_config)
     assert all(len(row) == 12 for row in snapshot.columns)

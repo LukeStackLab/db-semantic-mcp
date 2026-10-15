@@ -3,14 +3,14 @@ from unittest.mock import MagicMock
 import aiosqlite
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.probe import (
+from db_semantic_mcp.infrastructure.cache.probe import (
     SchemaFingerprints,
     diff_fingerprints,
     fetch_fingerprints,
     read_fingerprints,
     write_fingerprints,
 )
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.store import init_store
 
 
 def _fps(tables=None, objects=None, dependents=None) -> SchemaFingerprints:
@@ -60,9 +60,9 @@ def test_diff_summary_counts():
 
 
 def test_fetch_fingerprints_assembles_maps():
-    from sqlserver_semantic_mcp.config import Config
+    from db_semantic_mcp.config import Config
 
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
+    cfg = Config.model_construct(server="fake", database="db")
     conn = MagicMock()
     fetch_results = iter(
         [
@@ -96,9 +96,9 @@ def test_fetch_fingerprints_assembles_maps():
 
 
 def test_fetch_fingerprints_handles_missing_parts():
-    from sqlserver_semantic_mcp.config import Config
+    from db_semantic_mcp.config import Config
 
-    cfg = Config.model_construct(mssql_server="fake", mssql_database="db")
+    cfg = Config.model_construct(server="fake", database="db")
     conn = MagicMock()
     fetch_results = iter(
         [

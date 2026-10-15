@@ -1,5 +1,5 @@
-from sqlserver_semantic_mcp.domain.enums import RiskLevel, SqlOperation
-from sqlserver_semantic_mcp.policy.analyzer import analyze_sql
+from db_semantic_mcp.domain.enums import RiskLevel, SqlOperation
+from db_semantic_mcp.policy.analyzer import analyze_sql
 
 
 def test_select_simple():

@@ -6,21 +6,21 @@ import pytest
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
-    from sqlserver_semantic_mcp.config import reset_config
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
-    from sqlserver_semantic_mcp.server.app import reset_context
+    from db_semantic_mcp.server.app import reset_context
 
     reset_context()
 
 
 @pytest.mark.asyncio
 async def test_get_execution_policy_reload(env, monkeypatch):
-    from sqlserver_semantic_mcp.server.tools import policy as policy_tool
+    from db_semantic_mcp.server.tools import policy as policy_tool
 
     ctx = policy_tool.get_context()
     called = {"reload": 0}
@@ -42,7 +42,7 @@ async def test_get_execution_policy_reload(env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_execution_policy_default_returns_policy_dict(env):
-    from sqlserver_semantic_mcp.server.tools import policy as policy_tool
+    from db_semantic_mcp.server.tools import policy as policy_tool
 
     out = await policy_tool._get_policy({})
     assert "profile_name" in out

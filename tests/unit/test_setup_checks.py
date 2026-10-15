@@ -2,17 +2,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.credentials import CredentialReference
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import StructuralSnapshot, write_structural_snapshot
-from sqlserver_semantic_mcp.profiles import ConnectionProfile, load_profile, policy_bytes, profile_bytes
-from sqlserver_semantic_mcp.setup import checks
-from sqlserver_semantic_mcp.setup.files import SetupError, atomic_write
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.credentials import CredentialReference
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import StructuralSnapshot, write_structural_snapshot
+from db_semantic_mcp.profiles import ConnectionProfile, load_profile, policy_bytes, profile_bytes
+from db_semantic_mcp.setup import checks
+from db_semantic_mcp.setup.files import SetupError, atomic_write
 
 
 def test_connection_check_is_read_only_and_closes_cursor(monkeypatch):
-    cfg = Config(_env_file=None, mssql_server="s", mssql_database="ERP", mssql_user="u", mssql_password="SECRET")
+    cfg = Config(_env_file=None, server="s", database="ERP", user="u", password="SECRET")
     opened = MagicMock()
     cursor = opened.return_value.__enter__.return_value.cursor.return_value
     cursor.fetchone.side_effect = [("ERP",), (5,)]
@@ -30,7 +30,7 @@ def test_connection_error_is_redacted(monkeypatch):
         raise RuntimeError("password=NEVER_ECHO")
 
     monkeypatch.setattr(checks, "open_connection", fail)
-    cfg = Config(_env_file=None, mssql_server="s", mssql_database="ERP")
+    cfg = Config(_env_file=None, server="s", database="ERP")
     with pytest.raises(SetupError) as error:
         checks.check_connection(cfg)
     assert "NEVER_ECHO" not in str(error.value)

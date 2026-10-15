@@ -2,16 +2,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from sqlserver_semantic_mcp.config import get_config, reset_config
+from db_semantic_mcp.config import get_config, reset_config
 
 
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
     reset_config()
 
@@ -22,7 +22,7 @@ async def test_startup_cache_first_reuses_existing_cache(env, monkeypatch):
     reset_config()
     cfg = get_config()
 
-    from sqlserver_semantic_mcp import main as mod
+    from db_semantic_mcp import main as mod
 
     with (
         patch.object(mod, "init_store", AsyncMock()),
@@ -47,7 +47,7 @@ async def test_startup_cache_first_reuses_existing_cache(env, monkeypatch):
         patch.object(mod, "register_all"),
         patch.object(mod, "register_prompts"),
         patch.object(mod, "get_context"),
-        patch("sqlserver_semantic_mcp.main.asyncio.create_task") as create_task,
+        patch("db_semantic_mcp.main.asyncio.create_task") as create_task,
     ):
         fake_task = MagicMock()
         create_task.return_value = fake_task
@@ -55,7 +55,7 @@ async def test_startup_cache_first_reuses_existing_cache(env, monkeypatch):
         task = await mod._startup()
 
     warmup.assert_not_awaited()
-    enqueue.assert_awaited_once_with(cfg.cache_path, cfg.mssql_database)
+    enqueue.assert_awaited_once_with(cfg.cache_path, cfg.database)
     create_task.assert_called_once()
     bg_loop.assert_called_once_with(cfg)
     assert task is fake_task
@@ -67,7 +67,7 @@ async def test_startup_full_mode_forces_warmup(env, monkeypatch):
     reset_config()
     cfg = get_config()
 
-    from sqlserver_semantic_mcp import main as mod
+    from db_semantic_mcp import main as mod
 
     with (
         patch.object(mod, "init_store", AsyncMock()),
@@ -96,7 +96,7 @@ async def test_startup_full_mode_forces_warmup(env, monkeypatch):
         patch.object(mod, "register_all"),
         patch.object(mod, "register_prompts"),
         patch.object(mod, "get_context"),
-        patch("sqlserver_semantic_mcp.main.asyncio.create_task") as create_task,
+        patch("db_semantic_mcp.main.asyncio.create_task") as create_task,
     ):
         fake_task = MagicMock()
         create_task.return_value = fake_task
@@ -104,7 +104,7 @@ async def test_startup_full_mode_forces_warmup(env, monkeypatch):
         task = await mod._startup()
 
     warmup.assert_awaited_once_with(cfg)
-    enqueue.assert_awaited_once_with(cfg.cache_path, cfg.mssql_database)
+    enqueue.assert_awaited_once_with(cfg.cache_path, cfg.database)
     create_task.assert_called_once()
     bg_loop.assert_called_once_with(cfg)
     assert task is fake_task

@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from sqlserver_semantic_mcp.credentials import CredentialError, CredentialReference
-from sqlserver_semantic_mcp.profiles import load_profile
-from sqlserver_semantic_mcp.setup import wizard
-from sqlserver_semantic_mcp.setup.files import SetupError
+from db_semantic_mcp.credentials import CredentialError, CredentialReference
+from db_semantic_mcp.profiles import load_profile
+from db_semantic_mcp.setup import wizard
+from db_semantic_mcp.setup.files import SetupError
 
 
 @pytest.fixture
@@ -85,7 +85,7 @@ def test_connection_retry_keeps_defaults_and_does_not_repeat_permission(environm
     attempts = []
 
     def check(cfg):
-        attempts.append(cfg.mssql_server)
+        attempts.append(cfg.server)
         if len(attempts) == 1:
             raise SetupError("連線失敗")
         return {"visible_tables": 1}
@@ -111,7 +111,7 @@ def test_connection_retry_keeps_defaults_and_does_not_repeat_permission(environm
     )
     assert status == 0
     assert attempts == ["bad-host", "good-host"]
-    assert load_profile(environment[0] / "erp" / "connection.json").mssql_server == "good-host"
+    assert load_profile(environment[0] / "erp" / "connection.json").server == "good-host"
 
 
 def test_failed_handshake_does_not_register_profile(environment, monkeypatch):
@@ -282,7 +282,7 @@ def test_explicit_permission_change_enables_only_limited_writes(environment):
     assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])[0] == 0
     assert run(environment, ["erp", "y", "", "", "", "", "y", "n", ""])[0] == 0
     cfg = load_profile(environment[0] / "erp" / "connection.json")
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.services.policy_service import PolicyService
 
     policy = PolicyService(cfg).current_policy()
     assert policy.operations.insert is True
@@ -292,7 +292,7 @@ def test_explicit_permission_change_enables_only_limited_writes(environment):
 
 
 def test_stale_draft_does_not_delete_another_installers_identical_policy(environment):
-    from sqlserver_semantic_mcp.profiles import ConnectionProfile
+    from db_semantic_mcp.profiles import ConnectionProfile
 
     directory = environment[0] / "erp"
     stale = wizard.Draft(
@@ -314,7 +314,7 @@ def test_interrupt_after_replace_restores_the_owned_file(environment, monkeypatc
     directory = environment[0] / "erp"
     before = {p: p.read_bytes() for p in directory.glob("*.json")}
     client_before = environment[1].read_bytes()
-    from sqlserver_semantic_mcp.setup import files
+    from db_semantic_mcp.setup import files
 
     real_replace = files.os.replace
     interrupted = False
@@ -350,7 +350,7 @@ def test_finalize_preserves_newer_configuration_and_identical_credentials(enviro
 
     def register_then_concurrent_update(*args, **kwargs):
         backup = real_register(*args, **kwargs)
-        from sqlserver_semantic_mcp.setup.files import atomic_write
+        from db_semantic_mcp.setup.files import atomic_write
 
         atomic_write(directory / "credentials.json", secret_bytes)
         updated = json.loads((directory / "connection.json").read_text())
@@ -361,4 +361,4 @@ def test_finalize_preserves_newer_configuration_and_identical_credentials(enviro
     monkeypatch.setattr(wizard, "register_servers", register_then_concurrent_update)
     assert run(environment, ["erp", "y", "", "", "", "", "n", "n", ""])[0] == 0
     assert (directory / "credentials.json").read_bytes() == secret_bytes
-    assert load_profile(directory / "connection.json").mssql_password == "NEVER_ECHO_PASSWORD"
+    assert load_profile(directory / "connection.json").password == "NEVER_ECHO_PASSWORD"

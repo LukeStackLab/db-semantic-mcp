@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.workers import run_db_work, take_worker_timings
+from db_semantic_mcp.infrastructure.workers import run_db_work, take_worker_timings
 
 
 @pytest.mark.asyncio
@@ -118,7 +118,7 @@ async def test_worker_timings_do_not_include_inputs():
 
 @pytest.mark.asyncio
 async def test_shutdown_drains_lifecycles_and_stops_threads():
-    from sqlserver_semantic_mcp.infrastructure import workers
+    from db_semantic_mcp.infrastructure import workers
 
     cfg = SimpleNamespace(db_worker_limit=1)
     entered, release, closed = Event(), Event(), Event()

@@ -2,21 +2,21 @@ from unittest.mock import patch
 
 import pytest
 
-from sqlserver_semantic_mcp.config import get_config, reset_config
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.config import get_config, reset_config
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     write_structural_snapshot,
 )
-from sqlserver_semantic_mcp.services.object_service import describe_object
+from db_semantic_mcp.services.object_service import describe_object
 
 
 @pytest.mark.asyncio
 async def test_describe_object_uses_cache(tmp_path, monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
     reset_config()
     cfg = get_config()
@@ -34,8 +34,8 @@ async def test_describe_object_uses_cache(tmp_path, monkeypatch):
     await write_structural_snapshot(cfg.cache_path, "testdb", snap)
 
     with (
-        patch("sqlserver_semantic_mcp.services.object_service.fetch_one") as fo,
-        patch("sqlserver_semantic_mcp.services.object_service.fetch_all") as fa,
+        patch("db_semantic_mcp.services.object_service.fetch_one") as fo,
+        patch("db_semantic_mcp.services.object_service.fetch_all") as fa,
     ):
         fo.return_value = ("CREATE VIEW v1 AS SELECT 1",)
         fa.return_value = [("dbo", "Users", "USER_TABLE")]
@@ -54,14 +54,14 @@ async def test_describe_object_uses_cache(tmp_path, monkeypatch):
 async def test_object_scope_is_checked_before_cache_or_db(tmp_path):
     from unittest.mock import AsyncMock, MagicMock
 
-    from sqlserver_semantic_mcp.config import Config
+    from db_semantic_mcp.config import Config
 
     policy = MagicMock()
     policy.authorize_object.side_effect = PermissionError("denied")
-    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="db", mssql_user="u", mssql_password="p")
+    cfg = Config(_env_file=None, server="fake", database="db", user="u", password="p")
     with (
-        patch("sqlserver_semantic_mcp.services.object_service.read_schema_version", AsyncMock()) as read,
-        patch("sqlserver_semantic_mcp.services.object_service.fetch_one") as fetch,
+        patch("db_semantic_mcp.services.object_service.read_schema_version", AsyncMock()) as read,
+        patch("db_semantic_mcp.services.object_service.fetch_one") as fetch,
     ):
         with pytest.raises(PermissionError):
             await describe_object("private", "secret", "VIEW", cfg=cfg, policy=policy)
@@ -73,15 +73,15 @@ async def test_object_scope_is_checked_before_cache_or_db(tmp_path):
 async def test_cached_definition_with_denied_dependency_is_withheld(tmp_path):
     from unittest.mock import MagicMock
 
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import upsert_object_definition
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache.semantic import upsert_object_definition
 
     cfg = Config(
         _env_file=None,
-        mssql_server="fake",
-        mssql_database="db",
-        mssql_user="u",
-        mssql_password="p",
+        server="fake",
+        database="db",
+        user="u",
+        password="p",
         cache_path=str(tmp_path / "scope.db"),
     )
     await init_store(cfg.cache_path)
@@ -124,15 +124,15 @@ async def test_cached_definition_with_denied_dependency_is_withheld(tmp_path):
 async def test_definition_detects_cross_database_even_when_catalog_dependencies_miss_it(tmp_path):
     from unittest.mock import MagicMock
 
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import upsert_object_definition
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache.semantic import upsert_object_definition
 
     cfg = Config(
         _env_file=None,
-        mssql_server="fake",
-        mssql_database="db",
-        mssql_user="u",
-        mssql_password="p",
+        server="fake",
+        database="db",
+        user="u",
+        password="p",
         cache_path=str(tmp_path / "cross.db"),
     )
     await init_store(cfg.cache_path)
@@ -173,14 +173,14 @@ async def test_object_full_connection_lifecycles_stay_in_worker(tmp_path, monkey
     from threading import get_ident
     from unittest.mock import MagicMock
 
-    from sqlserver_semantic_mcp.config import Config
+    from db_semantic_mcp.config import Config
 
     cfg = Config(
         _env_file=None,
-        mssql_server="fake",
-        mssql_database="db",
-        mssql_user="u",
-        mssql_password="p",
+        server="fake",
+        database="db",
+        user="u",
+        password="p",
         cache_path=str(tmp_path / "threads.db"),
     )
     await init_store(cfg.cache_path)
@@ -198,7 +198,7 @@ async def test_object_full_connection_lifecycles_stay_in_worker(tmp_path, monkey
         conn.close.side_effect = lambda: events.append(("connection_close", get_ident()))
         return conn
 
-    monkeypatch.setattr("sqlserver_semantic_mcp.infrastructure.connection.pymssql.connect", connect)
+    monkeypatch.setattr("db_semantic_mcp.infrastructure.connection.pymssql.connect", connect)
     result = await describe_object("dbo", "v", "VIEW", cfg=cfg)
     assert result["status"] == "ready"
     assert [name for name, _ in events] == ["connect", "execute", "cursor_close", "connection_close"] * 2
@@ -218,7 +218,7 @@ async def test_object_full_connection_lifecycles_stay_in_worker(tmp_path, monkey
     ],
 )
 def test_definition_scope_rejects_hidden_and_unresolved_references(definition):
-    from sqlserver_semantic_mcp.services.object_service import _definition_allowed
+    from db_semantic_mcp.services.object_service import _definition_allowed
 
     class Policy:
         def object_allowed(self, schema, name, database=""):
@@ -228,7 +228,7 @@ def test_definition_scope_rejects_hidden_and_unresolved_references(definition):
 
 
 def test_definition_scope_resolves_cte_without_rejecting_allowed_physical_source():
-    from sqlserver_semantic_mcp.services.object_service import _definition_allowed
+    from db_semantic_mcp.services.object_service import _definition_allowed
 
     class Policy:
         def object_allowed(self, schema, name, database=""):
@@ -250,15 +250,15 @@ def test_definition_scope_resolves_cte_without_rejecting_allowed_physical_source
 async def test_restricted_object_is_redacted_before_persisting_and_on_cache_hit(tmp_path):
     from unittest.mock import MagicMock
 
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import get_object_definition
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache.semantic import get_object_definition
 
     cfg = Config(
         _env_file=None,
-        mssql_server="fake",
-        mssql_database="db",
-        mssql_user="u",
-        mssql_password="p",
+        server="fake",
+        database="db",
+        user="u",
+        password="p",
         cache_path=str(tmp_path / "redacted.db"),
     )
     await init_store(cfg.cache_path)
@@ -266,11 +266,11 @@ async def test_restricted_object_is_redacted_before_persisting_and_on_cache_hit(
     policy.object_allowed.side_effect = lambda schema, name, database="": schema == "dbo"
     with (
         patch(
-            "sqlserver_semantic_mcp.services.object_service.fetch_one",
+            "db_semantic_mcp.services.object_service.fetch_one",
             return_value=("CREATE VIEW dbo.v AS SELECT * FROM private.Secret JOIN dbo.Public ON 1=1",),
         ),
         patch(
-            "sqlserver_semantic_mcp.services.object_service.fetch_all",
+            "db_semantic_mcp.services.object_service.fetch_all",
             return_value=[("private", "Secret", "USER_TABLE"), ("dbo", "Public", "USER_TABLE")],
         ),
     ):
@@ -280,7 +280,7 @@ async def test_restricted_object_is_redacted_before_persisting_and_on_cache_hit(
     assert stored["definition"] is None
     assert stored["dependencies"] == ["dbo.Public"]
     assert "Secret" not in str(stored)
-    with patch("sqlserver_semantic_mcp.services.object_service.fetch_one") as fetch:
+    with patch("db_semantic_mcp.services.object_service.fetch_one") as fetch:
         again = await describe_object("dbo", "v", "VIEW", cfg=cfg, policy=policy)
     fetch.assert_not_called()
     assert again["definition_withheld"] is True
@@ -293,7 +293,7 @@ def test_unsupported_definition_never_logs_raw_body(caplog):
     import logging
     from unittest.mock import MagicMock
 
-    from sqlserver_semantic_mcp.services.object_service import _definition_allowed
+    from db_semantic_mcp.services.object_service import _definition_allowed
 
     body = "CREATE PROCEDURE dbo.v AS BEGIN PRINT 'SECRET_PAYLOAD_8765'; END"
     with caplog.at_level(logging.WARNING):
@@ -312,12 +312,12 @@ def test_unsupported_definition_never_logs_raw_body(caplog):
     ],
 )
 def test_definition_root_target_and_metadata_functions_cannot_bypass_restricted_scope(definition):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile, PolicyScope
-    from sqlserver_semantic_mcp.services.object_service import _definition_allowed
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.policy.models import PolicyProfile, PolicyScope
+    from db_semantic_mcp.services.object_service import _definition_allowed
+    from db_semantic_mcp.services.policy_service import PolicyService
 
-    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="app", mssql_user="u", mssql_password="p")
+    cfg = Config(_env_file=None, server="fake", database="app", user="u", password="p")
     policy = PolicyService(cfg)
     policy._policy = PolicyProfile(
         profile_name="test",
@@ -327,12 +327,12 @@ def test_definition_root_target_and_metadata_functions_cannot_bypass_restricted_
 
 
 def test_definition_authorized_root_module_target_is_allowed():
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile, PolicyScope
-    from sqlserver_semantic_mcp.services.object_service import _definition_allowed
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.policy.models import PolicyProfile, PolicyScope
+    from db_semantic_mcp.services.object_service import _definition_allowed
+    from db_semantic_mcp.services.policy_service import PolicyService
 
-    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="app", mssql_user="u", mssql_password="p")
+    cfg = Config(_env_file=None, server="fake", database="app", user="u", password="p")
     policy = PolicyService(cfg)
     policy._policy = PolicyProfile(
         profile_name="test",
@@ -355,12 +355,12 @@ def test_definition_authorized_root_module_target_is_allowed():
     ],
 )
 async def test_cached_opaque_sources_and_metadata_definitions_are_withheld(tmp_path, definition):
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure.cache.semantic import upsert_object_definition
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile, PolicyScope
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure.cache.semantic import upsert_object_definition
+    from db_semantic_mcp.policy.models import PolicyProfile, PolicyScope
+    from db_semantic_mcp.services.policy_service import PolicyService
 
-    cfg = Config(_env_file=None, mssql_server="fake", mssql_database="app", cache_path=str(tmp_path / "opaque.db"))
+    cfg = Config(_env_file=None, server="fake", database="app", cache_path=str(tmp_path / "opaque.db"))
     policy = PolicyService(cfg)
     policy._policy = PolicyProfile(
         profile_name="test",
@@ -395,7 +395,7 @@ async def test_cached_opaque_sources_and_metadata_definitions_are_withheld(tmp_p
         definition=definition,
         dependencies=["dbo.Users"],
     )
-    with patch("sqlserver_semantic_mcp.services.object_service.fetch_one") as fetch:
+    with patch("db_semantic_mcp.services.object_service.fetch_one") as fetch:
         result = await describe_object("dbo", "Public", object_type, cfg=cfg, policy=policy)
     fetch.assert_not_called()
     assert result["definition"] is None
@@ -404,12 +404,12 @@ async def test_cached_opaque_sources_and_metadata_definitions_are_withheld(tmp_p
 
 
 def test_restricted_definition_preserves_safe_scalar_queries():
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.policy.models import PolicyProfile, PolicyScope
-    from sqlserver_semantic_mcp.services.object_service import _definition_allowed
-    from sqlserver_semantic_mcp.services.policy_service import PolicyService
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.policy.models import PolicyProfile, PolicyScope
+    from db_semantic_mcp.services.object_service import _definition_allowed
+    from db_semantic_mcp.services.policy_service import PolicyService
 
-    policy = PolicyService(Config(_env_file=None, mssql_server="fake", mssql_database="app"))
+    policy = PolicyService(Config(_env_file=None, server="fake", database="app"))
     policy._policy = PolicyProfile(
         profile_name="test",
         scope=PolicyScope(

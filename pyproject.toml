@@ -1,6 +1,6 @@
 [project]
-name = "sqlserver-semantic-mcp"
-version = "0.7.0"
+name = "lukestack-db-semantic-mcp"
+version = "0.8.0"
 description = "Semantic intelligence layer for SQL Server databases, exposed via MCP. A database understanding engine for AI agents (Claude Code CLI, Codex CLI, Claude Desktop, etc.)."
 readme = "README.en.md"
 requires-python = ">=3.11"
@@ -60,14 +60,14 @@ dev = [
 ]
 
 [project.scripts]
-sqlserver-semantic-mcp = "sqlserver_semantic_mcp.main:main"
+db-semantic-mcp = "db_semantic_mcp.main:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["sqlserver_semantic_mcp*"]
+include = ["db_semantic_mcp*"]
 
 [tool.ruff]
 line-length = 120
@@ -84,7 +84,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["sqlserver_semantic_mcp"]
+known-first-party = ["db_semantic_mcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

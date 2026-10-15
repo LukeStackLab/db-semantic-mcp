@@ -6,20 +6,20 @@ import pytest
 @pytest.fixture
 def cache(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
     return str(tmp_path / "t.db")
 
 
 async def _seed(cache_path: str):
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.infrastructure.cache.structural import (
         StructuralSnapshot,
         write_structural_snapshot,
     )
@@ -53,7 +53,7 @@ async def _seed(cache_path: str):
 @pytest.mark.asyncio
 async def test_summarize_for_joining_shape(cache):
     await _seed(cache)
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.services import semantic_service
 
     result = await semantic_service.summarize_for_joining(
         cache,
@@ -74,7 +74,7 @@ async def test_summarize_for_joining_shape(cache):
 @pytest.mark.asyncio
 async def test_summarize_for_joining_table_with_no_fks(cache):
     await _seed(cache)
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.services import semantic_service
 
     result = await semantic_service.summarize_for_joining(
         cache,
@@ -89,7 +89,7 @@ async def test_summarize_for_joining_table_with_no_fks(cache):
 @pytest.mark.asyncio
 async def test_summarize_for_joining_nonexistent_table(cache):
     await _seed(cache)
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.services import semantic_service
 
     result = await semantic_service.summarize_for_joining(
         cache,

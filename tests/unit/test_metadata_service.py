@@ -1,11 +1,11 @@
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     write_structural_snapshot,
 )
-from sqlserver_semantic_mcp.services.metadata_service import (
+from db_semantic_mcp.services.metadata_service import (
     database_summary,
     describe_table,
     list_tables,

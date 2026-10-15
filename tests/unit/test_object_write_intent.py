@@ -1,6 +1,6 @@
 """Tests for read/write split on object definitions (P3)."""
 
-from sqlserver_semantic_mcp.services.object_service import split_read_write
+from db_semantic_mcp.services.object_service import split_read_write
 
 
 def test_select_only_view_has_only_reads():

@@ -5,16 +5,16 @@ import aiosqlite
 import pytest
 from mcp.types import Tool
 
-from sqlserver_semantic_mcp.config import Config
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.server import app as server
+from db_semantic_mcp.config import Config
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.server import app as server
 
 
 @pytest.fixture
 async def cfg(tmp_path, monkeypatch):
     cfg = Config.model_construct(
-        mssql_server="fake",
-        mssql_database="db",
+        server="fake",
+        database="db",
         cache_enabled=False,
         cache_path=str(tmp_path / "protocol.db"),
         metrics_enabled=True,
@@ -41,8 +41,8 @@ async def test_structured_output_preserves_unknown_count_and_empty_rows(cfg):
 
 
 async def test_advertised_output_schema_matches_server_validation(cfg, monkeypatch):
-    from sqlserver_semantic_mcp import config
-    from sqlserver_semantic_mcp.server.tools import register_all
+    from db_semantic_mcp import config
+    from db_semantic_mcp.server.tools import register_all
 
     monkeypatch.setattr(config, "get_config", lambda: cfg)
     register_all()
@@ -117,7 +117,7 @@ async def test_freshness_failure_does_not_hide_committed_write(cfg, monkeypatch)
 
 @pytest.mark.asyncio
 async def test_metrics_write_does_not_run_schema_migration(cfg, monkeypatch):
-    from sqlserver_semantic_mcp.services import metrics_service
+    from db_semantic_mcp.services import metrics_service
 
     async def migration(*args):
         raise AssertionError("per-call migration")
@@ -165,9 +165,9 @@ async def test_interleaved_snapshot_retains_payload_freshness(cfg, monkeypatch, 
 
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
-    from sqlserver_semantic_mcp.server.resources import schema as resources
-    from sqlserver_semantic_mcp.services import metadata_service
+    from db_semantic_mcp.infrastructure.cache import revalidation, structural
+    from db_semantic_mcp.server.resources import schema as resources
+    from db_semantic_mcp.services import metadata_service
 
     cfg.cache_enabled = True
     cfg.connection_name = None
@@ -258,9 +258,9 @@ async def test_classification_resource_without_identity_does_not_claim_latest_sn
 
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
-    from sqlserver_semantic_mcp.server.resources import schema as resources
-    from sqlserver_semantic_mcp.services import semantic_service
+    from db_semantic_mcp.infrastructure.cache import revalidation, structural
+    from db_semantic_mcp.server.resources import schema as resources
+    from db_semantic_mcp.services import semantic_service
 
     cfg.cache_enabled = True
     cfg.connection_name = None
@@ -306,9 +306,9 @@ async def test_metadata_list_array_without_identity_uses_latest_snapshot_envelop
 
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.infrastructure.cache import revalidation, structural
-    from sqlserver_semantic_mcp.server.resources import schema as resources
-    from sqlserver_semantic_mcp.services import metadata_service
+    from db_semantic_mcp.infrastructure.cache import revalidation, structural
+    from db_semantic_mcp.server.resources import schema as resources
+    from db_semantic_mcp.services import metadata_service
 
     cfg.cache_enabled = True
     cfg.connection_name = None
@@ -355,7 +355,7 @@ async def test_identity_free_payload_survives_freshness_failure(cfg, monkeypatch
 
     from pydantic import AnyUrl
 
-    from sqlserver_semantic_mcp.server.resources import schema as resources
+    from db_semantic_mcp.server.resources import schema as resources
 
     cfg.cache_enabled = True
     cfg.connection_name = None

@@ -2,17 +2,17 @@ from datetime import UTC
 
 import pytest
 
-from sqlserver_semantic_mcp.config import get_config, reset_config
-from sqlserver_semantic_mcp.infrastructure.background import (
+from db_semantic_mcp.config import get_config, reset_config
+from db_semantic_mcp.infrastructure.background import (
     run_background_fill_once,
 )
-from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
+from db_semantic_mcp.infrastructure.cache.semantic import (
     enqueue_all_tables,
     get_table_analysis,
     list_pending_table_analyses,
 )
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     write_structural_snapshot,
 )
@@ -20,10 +20,10 @@ from sqlserver_semantic_mcp.infrastructure.cache.structural import (
 
 @pytest.mark.asyncio
 async def test_background_processes_pending(tmp_path, monkeypatch):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("SEMANTIC_MCP_BACKGROUND_BATCH_SIZE", "10")
     reset_config()
@@ -63,15 +63,15 @@ async def test_failed_item_retry_does_not_starve_unattempted_tables(tmp_path, mo
 
     import aiosqlite
 
-    from sqlserver_semantic_mcp.config import Config
-    from sqlserver_semantic_mcp.infrastructure import background
+    from db_semantic_mcp.config import Config
+    from db_semantic_mcp.infrastructure import background
 
     cfg = Config(
         _env_file=None,
-        mssql_server="fake",
-        mssql_database="db",
-        mssql_user="u",
-        mssql_password="p",
+        server="fake",
+        database="db",
+        user="u",
+        password="p",
         cache_path=str(tmp_path / "retry.db"),
         background_batch_size=1,
     )

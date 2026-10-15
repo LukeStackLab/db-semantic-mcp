@@ -2,12 +2,12 @@ import json
 
 import pytest
 
-from sqlserver_semantic_mcp.config import reset_config
-from sqlserver_semantic_mcp.policy.readonly_guard import (
+from db_semantic_mcp.config import reset_config
+from db_semantic_mcp.policy.readonly_guard import (
     find_write_keywords,
     mask_literals,
 )
-from sqlserver_semantic_mcp.services.policy_service import PolicyService
+from db_semantic_mcp.services.policy_service import PolicyService
 
 
 @pytest.fixture
@@ -15,8 +15,8 @@ def readonly_svc(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # isolate from local .env
     monkeypatch.delenv("SEMANTIC_MCP_POLICY_FILE", raising=False)
     monkeypatch.delenv("SEMANTIC_MCP_POLICY_PROFILE", raising=False)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
     reset_config()
     svc = PolicyService()
     svc.load()
@@ -83,8 +83,8 @@ def test_write_profile_is_not_guarded(tmp_path, monkeypatch):
             }
         )
     )
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "x")
     monkeypatch.setenv("SEMANTIC_MCP_POLICY_FILE", str(pf))
     monkeypatch.delenv("SEMANTIC_MCP_POLICY_PROFILE", raising=False)
     reset_config()

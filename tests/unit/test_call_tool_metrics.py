@@ -6,20 +6,20 @@ import pytest
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "m.db"))
     # keep dispatcher tests hermetic: no background schema probe
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_ENABLED", "false")
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
 
 
 async def _call(name, args):
-    from sqlserver_semantic_mcp.server.app import _call_tool
+    from db_semantic_mcp.server.app import _call_tool
 
     return await _call_tool(name, args)
 
@@ -28,13 +28,13 @@ async def _call(name, args):
 async def test_successful_tool_call_records_metric(env):
     from mcp.types import Tool
 
-    from sqlserver_semantic_mcp.config import get_config
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.server.app import (
+    from db_semantic_mcp.config import get_config
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.server.app import (
         _TOOL_REGISTRY,
         register_tool,
     )
-    from sqlserver_semantic_mcp.services import metrics_service
+    from db_semantic_mcp.services import metrics_service
 
     cfg = get_config()
     await init_store(cfg.cache_path)
@@ -61,13 +61,13 @@ async def test_successful_tool_call_records_metric(env):
 async def test_error_path_records_failure_metric(env):
     from mcp.types import Tool
 
-    from sqlserver_semantic_mcp.config import get_config
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.server.app import (
+    from db_semantic_mcp.config import get_config
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.server.app import (
         _TOOL_REGISTRY,
         register_tool,
     )
-    from sqlserver_semantic_mcp.services import metrics_service
+    from db_semantic_mcp.services import metrics_service
 
     cfg = get_config()
     await init_store(cfg.cache_path)
@@ -90,19 +90,19 @@ async def test_error_path_records_failure_metric(env):
 @pytest.mark.asyncio
 async def test_metrics_disabled_skips_recording(env, monkeypatch):
     monkeypatch.setenv("SEMANTIC_MCP_METRICS_ENABLED", "false")
-    from sqlserver_semantic_mcp.config import reset_config
+    from db_semantic_mcp.config import reset_config
 
     reset_config()
 
     from mcp.types import Tool
 
-    from sqlserver_semantic_mcp.config import get_config
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.server.app import (
+    from db_semantic_mcp.config import get_config
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.server.app import (
         _TOOL_REGISTRY,
         register_tool,
     )
-    from sqlserver_semantic_mcp.services import metrics_service
+    from db_semantic_mcp.services import metrics_service
 
     cfg = get_config()
     await init_store(cfg.cache_path)
@@ -126,9 +126,9 @@ async def test_metrics_disabled_skips_recording(env, monkeypatch):
 async def test_list_response_captures_array_length(env):
     from mcp.types import Tool
 
-    from sqlserver_semantic_mcp.config import get_config
-    from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-    from sqlserver_semantic_mcp.server.app import (
+    from db_semantic_mcp.config import get_config
+    from db_semantic_mcp.infrastructure.cache.store import init_store
+    from db_semantic_mcp.server.app import (
         _TOOL_REGISTRY,
         register_tool,
     )

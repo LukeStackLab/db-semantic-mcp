@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from sqlserver_semantic_mcp import main
-from sqlserver_semantic_mcp.config import reset_config
+from db_semantic_mcp import main
+from db_semantic_mcp.config import reset_config
 
 
 def test_legacy_no_argument_starts_server(monkeypatch):
@@ -17,7 +17,9 @@ def test_help_does_not_require_database_configuration(capsys):
     with pytest.raises(SystemExit) as result:
         main.main(["--help"])
     assert result.value.code == 0
-    assert "setup" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "setup" in output
+    assert "DB Semantic MCP" in output
 
 
 def test_bad_fixed_profile_fails_on_stderr_without_traceback(tmp_path, capsys):
@@ -35,9 +37,9 @@ def test_registered_command_ignores_cwd_and_pythonpath_package_shadowing(tmp_pat
     import os
     import subprocess
 
-    from sqlserver_semantic_mcp.setup.clients import server_entry
+    from db_semantic_mcp.setup.clients import server_entry
 
-    fake = tmp_path / "sqlserver_semantic_mcp"
+    fake = tmp_path / "db_semantic_mcp"
     fake.mkdir()
     (fake / "__init__.py").write_text("")
     (fake / "main.py").write_text("print('HIJACKED_PACKAGE')")
@@ -54,3 +56,15 @@ def test_registered_command_ignores_cwd_and_pythonpath_package_shadowing(tmp_pat
     assert result.stdout == ""
     assert "HIJACKED_PACKAGE" not in result.stderr
     assert "找不到" in result.stderr
+
+
+def test_distribution_exposes_only_the_new_product_entrypoint():
+    import tomllib
+    from pathlib import Path
+
+    from db_semantic_mcp import __version__
+
+    project = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())["project"]
+    assert project["name"] == "lukestack-db-semantic-mcp"
+    assert project["version"] == __version__ == "0.8.0"
+    assert project["scripts"] == {"db-semantic-mcp": "db_semantic_mcp.main:main"}

@@ -1,6 +1,6 @@
 import pytest
 
-from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
+from db_semantic_mcp.infrastructure.cache.semantic import (
     enqueue_all_tables,
     get_object_definition,
     get_table_analysis,
@@ -8,8 +8,8 @@ from sqlserver_semantic_mcp.infrastructure.cache.semantic import (
     upsert_object_definition,
     upsert_table_analysis,
 )
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.infrastructure.cache.structural import (
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.infrastructure.cache.structural import (
     StructuralSnapshot,
     write_structural_snapshot,
 )

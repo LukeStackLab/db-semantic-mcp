@@ -2,17 +2,17 @@
 
 import pytest
 
-from sqlserver_semantic_mcp.config import get_config, reset_config
-from sqlserver_semantic_mcp.infrastructure.cache.store import init_store
-from sqlserver_semantic_mcp.workflows.bundle import bundle_context_for_next_step
+from db_semantic_mcp.config import get_config, reset_config
+from db_semantic_mcp.infrastructure.cache.store import init_store
+from db_semantic_mcp.workflows.bundle import bundle_context_for_next_step
 
 
 @pytest.fixture
 async def cfg(monkeypatch, tmp_path):
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_SERVER", "x")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_DATABASE", "testdb")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_USER", "u")
-    monkeypatch.setenv("SEMANTIC_MCP_MSSQL_PASSWORD", "p")
+    monkeypatch.setenv("SEMANTIC_MCP_SERVER", "x")
+    monkeypatch.setenv("SEMANTIC_MCP_DATABASE", "testdb")
+    monkeypatch.setenv("SEMANTIC_MCP_USER", "u")
+    monkeypatch.setenv("SEMANTIC_MCP_PASSWORD", "p")
     monkeypatch.setenv("SEMANTIC_MCP_CACHE_PATH", str(tmp_path / "bundle.db"))
     reset_config()
     c = get_config()
@@ -26,18 +26,18 @@ async def _seed_table(cfg, schema: str, table: str, columns: list[tuple]):
     async with aiosqlite.connect(cfg.cache_path) as db:
         await db.execute(
             "INSERT INTO sc_tables(database_name, schema_name, table_name) VALUES (?,?,?)",
-            (cfg.mssql_database, schema, table),
+            (cfg.database, schema, table),
         )
         for ord_pos, (name, dtype, nullable) in enumerate(columns, start=1):
             await db.execute(
                 "INSERT INTO sc_columns(database_name, schema_name, table_name, "
                 "column_name, data_type, max_length, is_nullable, "
                 "column_default, ordinal_position) VALUES (?,?,?,?,?,?,?,?,?)",
-                (cfg.mssql_database, schema, table, name, dtype, None, 1 if nullable else 0, None, ord_pos),
+                (cfg.database, schema, table, name, dtype, None, 1 if nullable else 0, None, ord_pos),
             )
         await db.execute(
             "INSERT INTO sc_primary_keys(database_name, schema_name, table_name, column_name) VALUES (?,?,?,?)",
-            (cfg.mssql_database, schema, table, columns[0][0]),
+            (cfg.database, schema, table, columns[0][0]),
         )
         await db.commit()
 
