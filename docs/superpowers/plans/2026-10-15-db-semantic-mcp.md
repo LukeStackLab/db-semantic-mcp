@@ -15,7 +15,7 @@
 - User explicitly delegated all design/implementation choices; no approval pauses. Do not publish, push or rename remote GitHub repository.
 - Work only in the authorized checkout on feat/db-semantic-mcp. No subagents from implementers. Commit only task files; never stage all indiscriminately.
 - Read relevant spec sections. Write full reports to the provided report path; return status, commits, concise test result and concerns.
-- Distribution/CLI db-semantic-mcp, module db_semantic_mcp, version 0.8.0; no old CLI/module shim. Leave historical docs unchanged.
+- Distribution lukestack-db-semantic-mcp, product/CLI db-semantic-mcp, module db_semantic_mcp, version 0.8.0; no old CLI/module shim. Leave historical docs unchanged.
 - Runtime Config neutral fields: server, database, user, password, port, windows_auth, encrypt. Env prefix SEMANTIC_MCP_. Keep defaults/caps/policies and 12 tools.
 - Read-only default, opt-in INSERT VALUES / UPDATE WHERE only. Oracle 19c+, Thin default and configurable Thick. No PL/SQL execution/DDL/DELETE/unknown opaque queries.
 - Preserve all existing tests' semantic coverage; adjust names mechanically, do not delete failing tests to ship.
@@ -36,7 +36,7 @@
 
 **Files:** Rename sqlserver_semantic_mcp/ to db_semantic_mcp/; modify pyproject.toml, tests imports/fixtures, .env.example, active README references as needed. Historical docs remain unchanged.
 
-**Interfaces:** Produces the existing implementation under db_semantic_mcp, Config.server/database/user/password/port/windows_auth/encrypt and SEMANTIC_MCP_* neutral env names; existing services consume these directly. Keep build_pymssql_kwargs API intact. New product version 0.8.0 and sole new CLI. No Oracle behavior in this task.
+**Interfaces:** Produces the existing implementation under db_semantic_mcp, Config.server/database/user/password/port/windows_auth/encrypt and SEMANTIC_MCP_* neutral env names; existing services consume these directly. Keep build_pymssql_kwargs API intact. New product version 0.8.0 and sole new CLI; distribution lukestack-db-semantic-mcp avoids the unrelated existing PyPI project. Keep actual GitHub repository URLs until external rename. No Oracle behavior in this task.
 
 - [ ] Update CLI/import assertions first and demonstrate missing new module failure.
 - [ ] Mechanically rename namespace, distribution strings, credential service/config root/server name, runtime config fields and test usages. Do not accidentally rename pymssql library or backend-specific function names. Old product names only in migration/history contexts.

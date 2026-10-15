@@ -4,7 +4,7 @@
 
 使用者於 2026-10-15 授權 agent 自行決定設計、架構與應用性，必要時修訂先前決策，不再逐項詢問，交付可用、輕量、高效且可維護的 SQL Server + Oracle MCP。此授權取代本次設計及計畫的人工逐段審核；不包含 Git push、PyPI 發布或 GitHub repository 遠端更名。
 
-產品名稱、distribution、CLI、MCP server name 為 `db-semantic-mcp`；Python namespace 為 `db_semantic_mcp`。版本為 0.8.0。不保留舊 CLI 或舊 Python namespace。提供明確的舊配置與 Client 註冊遷移指令，保留原始檔案與備份。歷史設計文件不改寫。
+產品名稱、CLI、MCP server name 為 `db-semantic-mcp`；distribution 為 `lukestack-db-semantic-mcp`，因中性 distribution 名稱已由另一個 PyPI 專案使用；Python namespace 為 `db_semantic_mcp`。版本為 0.8.0。不保留舊 CLI 或舊 Python namespace。提供明確的舊配置與 Client 註冊遷移指令，保留原始檔案與備份。歷史設計文件不改寫。
 
 ## 功能與相容性
 
