@@ -424,11 +424,13 @@ def _describe_oracle(cfg, schema, name, object_type, policy):
                     "affected_tables": [],
                     "io_completeness": "unknown",
                 }
-            definition = catalog.get_object_definition(source_cfg, schema, name, kind, conn=conn)
-            dependencies = catalog.get_object_dependencies(source_cfg, schema, name, object_type=kind, conn=conn)
-            restricted = any(
-                (scope.allowed_databases, scope.allowed_schemas, scope.allowed_tables, scope.denied_tables)
+            # Do not load opaque source text merely to discard it. Only VIEW
+            # definitions can pass the source/function/column proof below.
+            opaque_definition = kind != "VIEW"
+            definition = (
+                None if opaque_definition else catalog.get_object_definition(source_cfg, schema, name, kind, conn=conn)
             )
+            dependencies = catalog.get_object_dependencies(source_cfg, schema, name, object_type=kind, conn=conn)
             visible = []
             hidden = False
             for owner, dep_name, dep_type, link in dependencies:
@@ -465,10 +467,12 @@ def _describe_oracle(cfg, schema, name, object_type, policy):
                     io_complete = True
                 except Exception:  # noqa: BLE001 (fail closed without driver or SQL disclosure)
                     hidden = True
-            withheld = hidden or restricted and kind not in {"VIEW", "MATERIALIZED VIEW"}
-            # Materialized-view SQL can name objects/functions beyond static deps.
-            if restricted and kind == "MATERIALIZED VIEW":
-                withheld = True
+            # Remote authorization is closed-world even when local scope is
+            # unrestricted. Static dependencies cannot prove an opaque module
+            # has no dynamic/unconfigured remote references. Only VIEW has the
+            # complete source/function/column proof above; materialized-view
+            # definitions do not yet have an equivalent proof.
+            withheld = hidden or opaque_definition
             return {
                 "status": "restricted" if withheld else "ready",
                 "database_name": cfg.database,
@@ -486,7 +490,14 @@ def _describe_oracle(cfg, schema, name, object_type, policy):
                 "io_completeness": "complete_select_sources" if io_complete and not withheld else "unknown",
                 "definition_withheld": withheld,
                 **(
-                    {"definition_omission_reason": "Transitive or dynamic object scope cannot be proven"}
+                    {
+                        "definition_omission_reason": (
+                            "Opaque Oracle definitions are withheld: dynamic or transitive sources cannot be proven "
+                            "under closed-world source authorization"
+                            if opaque_definition
+                            else "Transitive or dynamic object scope cannot be proven"
+                        )
+                    }
                     if withheld
                     else {}
                 ),

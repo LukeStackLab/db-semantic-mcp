@@ -250,6 +250,17 @@ def parse_oracle(sql: str) -> tuple[exp.Expression, list[ObjectReference]]:
     if type(root) not in {exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery, exp.Insert, exp.Update}:
         raise ValueError("Oracle supports SELECT and simple INSERT VALUES / UPDATE WHERE only")
     for node in root.walk():
+        if isinstance(node, (exp.Fetch, exp.Offset, exp.Limit)):
+            count = node.args.get("count" if isinstance(node, exp.Fetch) else "expression")
+            # Oracle defaults an omitted FETCH count to one. All explicit
+            # counts must be numeric literals: SQLGlot can represent a bare
+            # FETCH count as Identifier, bypassing ordinary column proof.
+            if not (isinstance(node, exp.Fetch) and count is None) and not (
+                isinstance(count, exp.Literal)
+                and count.is_number
+                and re.fullmatch(r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[Ee][+-]?[0-9]+)?", count.this)
+            ):
+                raise ValueError("Oracle FETCH/OFFSET counts require nonnegative numeric literals")
         if isinstance(node, exp.Identifier):
             if not node.args.get("quoted"):
                 node.set("this", node.name.upper())

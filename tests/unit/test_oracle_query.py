@@ -204,3 +204,14 @@ def test_thin_timestamp_failure_provides_actionable_hint_without_rows(monkeypatc
     assert "TO_CHAR" in result["error"] and "FF9 TZR TZD" in result["error"]
     assert "rows" not in result
     assert not result.get("result_complete")
+
+
+@pytest.mark.parametrize(
+    "clause", ["FETCH FIRST evil ROWS ONLY", "FETCH FIRST evil PERCENT ROWS ONLY", "OFFSET evil ROWS"]
+)
+def test_unproven_row_limiting_count_is_denied_before_driver(monkeypatch, clause):
+    _, _, cursor, _, query = service(monkeypatch)
+    result = query.execute_query(f"SELECT * FROM orders {clause}", validate_result_schema=True)
+    assert not result["executed"]
+    cursor.execute.assert_not_called()
+    cursor.parse.assert_not_called()

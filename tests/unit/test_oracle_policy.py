@@ -133,3 +133,37 @@ def test_global_write_permission_cannot_be_expanded_by_remote():
 )
 def test_other_dialects_builtin_names_do_not_authorize_oracle_user_functions(sql):
     assert OracleIntentAnalyzer().analyze(sql).authorization_error
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "FETCH FIRST evil ROWS ONLY",
+        'FETCH FIRST "evil" ROWS ONLY',
+        "FETCH FIRST evil PERCENT ROWS ONLY",
+        'FETCH FIRST "evil" PERCENT ROWS ONLY',
+        "OFFSET evil ROWS",
+        'OFFSET "evil" ROWS FETCH NEXT 5 ROWS ONLY',
+        "FETCH FIRST '5' ROWS ONLY",
+        "FETCH FIRST (1+1) ROWS ONLY",
+        "OFFSET 1+1 ROWS",
+        "OFFSET :count ROWS",
+    ],
+)
+def test_row_limiting_unknown_or_expression_counts_are_rejected(clause):
+    assert OracleIntentAnalyzer().analyze(f"SELECT * FROM orders {clause}").authorization_error
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "FETCH FIRST 5 ROWS ONLY",
+        "FETCH FIRST ROW ONLY",
+        "FETCH NEXT 2.5 PERCENT ROWS ONLY",
+        "OFFSET 0 ROWS",
+        "OFFSET 3 ROWS FETCH NEXT 2 ROWS ONLY",
+        "OFFSET 1.5 ROWS FETCH FIRST 10 PERCENT ROWS WITH TIES",
+    ],
+)
+def test_row_limiting_numeric_literals_and_default_fetch_remain_supported(clause):
+    assert not OracleIntentAnalyzer().analyze(f"SELECT * FROM orders ORDER BY id {clause}").authorization_error
