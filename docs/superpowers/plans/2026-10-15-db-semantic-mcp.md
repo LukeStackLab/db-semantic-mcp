@@ -98,3 +98,16 @@
 - [ ] Independently regenerate lock from current pyproject (do not silently discard preexisting applicable dependency resolutions); compare original snapshot and record integration. Ensure base and [oracle] installs and driver-less CLI/help work with lazy imports.
 - [ ] Run full pytest, ruff check and format check, uv lock --check, build wheel/sdist, inspect entry points and install wheel in clean temporary env. Smoke test CLI help/version and stdio initialization with isolated test fixture. Do not run live operations without explicit disposable opt-in.
 - [ ] Commit only task changes. Write report with exact counts, skipped live matrix and remaining verified limitations. Mark plan completed only for actually delivered requirements; unresolved gaps must be fixed before final review or explicitly justified against the spec.
+
+
+### Task 6: Reproducible local Docker demo requested by user
+
+**Files:** docker/compose.demo.yaml, scripts/demo.py (or focused equivalent), SQL Server fixture SQL, docs/local-docker.md, README links, .gitignore, focused tests as needed. Reuse Task5 Oracle fixtures and installed-product smoke.
+
+**Consumes:** Completed product and portable live suite; existing owned Docker proof. **Produces:** Re-runnable isolated SQL Server + one Oracle default demo, optional second Oracle for DB link; generated private credentials/profiles; actual MCP validation. Thin/Thick are driver modes and share a single Oracle server. No user Client/keyring changes.
+
+- [ ] Provide a lightweight Docker Compose setup with localhost-only ports and task-specific labels/names/volumes. Default one SQL Server plus one Oracle; optional remote profile adds a second Oracle for DB link. Document architecture/platform/resource needs accurately.
+- [ ] Provide an initializer/controller that creates private random credentials, fixed JSONv2 connection/policy profiles, customers/orders/composite FK/precise amounts/LOB/view/synonym fixture data, and optional DB link/public remote fixture. Reuse committed Oracle SQL without private-state dependence. Secrets never enter Git, command arguments, reports or printed output.
+- [ ] Up/init/check/down commands must only manage owned demo resources. Refuse collisions or unknown infrastructure; repeated execution must not blindly drop or overwrite databases. Down is explicit and bounded to owned labeled resources; data deletion must be separately explicit. Preserve user SQL Server1433 and all other resources.
+- [ ] Validate with real Docker and actual MCP child: SQL Server scalar/data/catalog, Oracle Thin scalar/data/synonym/precision, optional remote native query/source policy. Exercise Thick against the same Oracle when private existing official client is available; no separate Thick database container. Keep profiles private and runtime state outside the SDD workspace so user can reuse the requested environment.
+- [ ] Document simple commands, sample dataset, Thin/Thick distinction, stop/data cleanup behavior and observed test results. Include exact final focused/full/build checks justified by changes; commit only Task6 changes.
