@@ -1,0 +1,13 @@
+{
+  "format_version": 2,
+  "name": "sqlserver_demo",
+  "database_type": "sqlserver",
+  "server": "localhost",
+  "port": 1433,
+  "database": "YourDatabase",
+  "user": "mcp_reader",
+  "encrypt": true,
+  "readonly": true,
+  "credential": {"storage": "env", "key": "DBMCP_SQL_PASSWORD"},
+  "tool_profile": "all"
+}

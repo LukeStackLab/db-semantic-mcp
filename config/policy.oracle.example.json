@@ -1,0 +1,19 @@
+{
+  "active_profile": "readonly",
+  "profiles": {
+    "readonly": {
+      "profile_name": "readonly",
+      "operations": {"select": true},
+      "constraints": {"max_rows_returned": 1000, "max_rows_affected": 100, "query_timeout_seconds": 30, "allow_multi_statement": false},
+      "scope": {
+        "allowed_schemas": ["DBMCP_TEST", "PUBLIC"],
+        "sources": {
+          "remote": {
+            "allowed_schemas": ["DBMCP_TEST", "DBMCP_REMOTE_ONLY"],
+            "operations": {"select": true}
+          }
+        }
+      }
+    }
+  }
+}

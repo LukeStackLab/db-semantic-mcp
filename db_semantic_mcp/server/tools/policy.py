@@ -1,5 +1,6 @@
 from mcp.types import Tool
 
+from ...infrastructure.backends import backend_for
 from ..app import get_context, register_tool
 
 
@@ -38,5 +39,15 @@ async def _get_policy(args: dict) -> dict:
         )
     if args.get("reload"):
         pol = ctx.policy.current_policy()
-        return {"reloaded": True, "profile": pol.profile_name, **pol.model_dump(), "available_sources": sources}
-    return {**ctx.policy.current_policy().model_dump(), "available_sources": sources}
+        return {
+            "reloaded": True,
+            "profile": pol.profile_name,
+            **pol.model_dump(),
+            "available_sources": sources,
+            "capabilities": backend_for(ctx.cfg).capabilities(ctx.cfg),
+        }
+    return {
+        **ctx.policy.current_policy().model_dump(),
+        "available_sources": sources,
+        "capabilities": backend_for(ctx.cfg).capabilities(ctx.cfg),
+    }

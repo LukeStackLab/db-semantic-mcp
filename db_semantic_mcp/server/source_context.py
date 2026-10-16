@@ -40,7 +40,17 @@ def source_metadata(cfg):
         "database_type": cfg.database_type,
         "id": cfg.source_id,
         "database": cfg.database,
-        "capabilities": backend_for(cfg).capabilities(cfg),
+        "capabilities": {
+            key: value
+            for key, value in backend_for(cfg).capabilities(cfg).items()
+            if key
+            in {
+                "driver_mode",
+                "native_timestamp_max_precision",
+                "native_timestamp_timezone",
+                "remote_sources",
+            }
+        },
     }
     if cfg.connection_name:
         result["connection"] = cfg.connection_name

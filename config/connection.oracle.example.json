@@ -1,0 +1,15 @@
+{
+  "format_version": 2,
+  "name": "oracle_demo",
+  "database_type": "oracle",
+  "server": "localhost",
+  "port": 1521,
+  "database": "FREEPDB1",
+  "user": "DBMCP_TEST",
+  "encrypt": false,
+  "readonly": true,
+  "oracle": {"service_name": "FREEPDB1", "driver_mode": "thin"},
+  "sources": {"remote": {"db_link": "DBMCP.REMOTE.TEST", "readonly": true}},
+  "credential": {"storage": "env", "key": "DBMCP_ORACLE_PASSWORD"},
+  "tool_profile": "all"
+}

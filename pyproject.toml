@@ -1,10 +1,11 @@
 [project]
 name = "lukestack-db-semantic-mcp"
 version = "0.8.0"
-description = "Semantic intelligence layer for SQL Server databases, exposed via MCP. A database understanding engine for AI agents (Claude Code CLI, Codex CLI, Claude Desktop, etc.)."
+description = "Semantic intelligence layer for SQL Server and Oracle databases, exposed via MCP. A database understanding engine for AI agents (Claude Code CLI, Codex CLI, Claude Desktop, etc.)."
 readme = "README.en.md"
 requires-python = ">=3.11"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Luke", email = "popo555155@gmail.com"},
 ]
@@ -13,6 +14,7 @@ keywords = [
     "model-context-protocol",
     "sql-server",
     "mssql",
+    "oracle",
     "claude",
     "claude-code",
     "codex",
@@ -23,7 +25,6 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -64,7 +65,7 @@ dev = [
 db-semantic-mcp = "db_semantic_mcp.main:main"
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -75,7 +76,7 @@ line-length = 120
 target-version = "py311"
 # Global Git ignore patterns must not hide tracked cache infrastructure.
 respect-gitignore = false
-extend-exclude = ["build", "source"]
+extend-exclude = ["build", "source", ".superpowers"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "BLE"]
@@ -92,5 +93,5 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 markers = [
-    "integration: requires live SQL Server"
+    "integration: requires explicit disposable database opt-in"
 ]

@@ -1,0 +1,7 @@
+include README.md README.zh-TW.md README.en.md CHANGELOG.md .env.example uv.lock
+recursive-include config *.example.json
+include docs/testing-oracle.md docs/validation-0.8.0.md
+recursive-include tests *.py *.sql
+prune .superpowers
+prune build
+prune dist

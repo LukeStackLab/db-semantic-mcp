@@ -7,6 +7,7 @@ from pathlib import Path
 
 from mcp.server.stdio import stdio_server
 
+from . import __version__
 from .config import configure, get_config
 from .infrastructure.background import background_fill_loop
 from .infrastructure.cache.semantic import enqueue_all_tables
@@ -98,6 +99,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="DB Semantic MCP：獨立連線與互動式安裝",
     )
+    parser.add_argument("--version", action="version", version=f"db-semantic-mcp {__version__}")
     commands = parser.add_subparsers(dest="command")
     setup = commands.add_parser("setup", help="互動式安裝與配置")
     setup.add_argument("--config-dir", type=Path, help="連線配置根目錄")
@@ -164,9 +166,14 @@ def main(argv: list[str] | None = None) -> None:
     except Exception as exc:  # noqa: BLE001 (security boundary – never echo driver errors)
         # Serving errors must not expose driver credentials or contaminate
         # stdout, which is reserved for MCP.
+        from .infrastructure.backends.oracle import MissingOracleDriverError
         from .setup.files import SetupError
 
-        message = str(exc) if isinstance(exc, SetupError) else "請檢查指定配置、憑證與檔案權限；可執行 setup 重新配置。"
+        message = (
+            str(exc)
+            if isinstance(exc, (SetupError, MissingOracleDriverError))
+            else "請檢查指定配置、憑證與檔案權限；可執行 setup 重新配置。"
+        )
         print(f"啟動失敗：{message}", file=sys.stderr)
         raise SystemExit(1) from None
 

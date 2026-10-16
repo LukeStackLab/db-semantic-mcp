@@ -1,8 +1,1 @@
-import asyncio
-
-import pytest
-
-
-@pytest.fixture(scope="session")
-def event_loop_policy():
-    return asyncio.DefaultEventLoopPolicy()
+"""Shared test configuration. pytest-asyncio owns the default loop policy."""

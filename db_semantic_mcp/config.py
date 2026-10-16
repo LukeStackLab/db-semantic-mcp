@@ -90,7 +90,7 @@ class Config(BaseSettings):
     connection_name: str | None = None
     server: str = ""
     user: str | None = None
-    password: str | None = None
+    password: str | None = Field(default=None, repr=False)
     database: str = ""
     port: int | None = Field(default=None, ge=1, le=65535)
     database_type: Literal["sqlserver", "oracle"] = "sqlserver"

@@ -1,20 +1,10 @@
 """Opt-in, read-only checks against an explicitly selected disposable SQL Server."""
 
-import os
 from decimal import Decimal
 
 import pytest
 
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def disposable_config():
-    if os.getenv("SEMANTIC_MCP_DISPOSABLE_SQL_TESTS") != "1":
-        pytest.skip("Explicit disposable SQL Server opt-in required")
-    from db_semantic_mcp.config import Config
-
-    return Config()
 
 
 def test_live_scalar_and_result_metadata(disposable_config):

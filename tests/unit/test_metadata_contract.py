@@ -150,9 +150,7 @@ async def test_warmup_persists_only_authorized_catalog(tmp_path, monkeypatch):
             profiles={"readonly": PolicyProfile(profile_name="readonly", scope={"allowed_tables": ["dbo.Public"]})}
         ).model_dump_json()
     )
-    cfg = Config.model_construct(
-        server="fake", database="db", cache_path=path, policy_file=str(policy_file)
-    )
+    cfg = Config.model_construct(server="fake", database="db", cache_path=path, policy_file=str(policy_file))
     await init_store(path)
     snap = StructuralSnapshot(
         tables=[("dbo", "Public"), ("dbo", "Secret")],

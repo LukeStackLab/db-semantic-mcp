@@ -10,12 +10,17 @@ _mode_lock = threading.Lock()
 _thick_options: tuple | None = None
 
 
+class MissingOracleDriverError(RuntimeError):
+    """Safe, actionable diagnostic containing no connection details."""
+
+
 def _driver():
     try:
         return importlib.import_module("oracledb")
     except ImportError:
-        raise RuntimeError(
-            "Oracle requires the optional dependency: pip install 'lukestack-db-semantic-mcp[oracle]'"
+        raise MissingOracleDriverError(
+            "Oracle driver is missing. From the source checkout run: uv pip install '.[oracle]' "
+            "or install your built lukestack_db_semantic_mcp-0.8.0 wheel with [oracle]."
         ) from None
 
 

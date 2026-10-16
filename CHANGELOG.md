@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-16
+
+- Rename the product/CLI to db-semantic-mcp, module to db_semantic_mcp, and distribution to lukestack-db-semantic-mcp. This release is source/wheel only; no PyPI publication.
+- Add optional Oracle Thin/Thick backend, native precision/LOB handling, scoped DB-link sources, synonym proof and static catalog metadata. Preserve SQL Server support.
+- Add v2 provider profiles, Oracle-aware setup/doctor, mandatory TCPS DN validation, policy snapshots and ownership-aware v1 migration.
+- Keep opaque PL/SQL definitions withheld; unknown transactions require outcome verification before manual retry. Oracle timeout is per round trip.
+- Keep response provenance compact; full capabilities are available in get_execution_policy/doctor. Add CLI --version and actionable optional-driver diagnostics.
+- Add explicit disposable live fixtures/tests, packaging validation and documented compatibility limits. See docs/validation-0.8.0.md.
+
 ## [Unreleased]
 
 ## [0.7.0]

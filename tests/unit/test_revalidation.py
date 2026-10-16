@@ -113,9 +113,7 @@ async def test_drift_triggers_warmup_and_dependency_cascade(cfg):
     )
     with (
         patch(f"{MOD}.fetch_fingerprints", return_value=fresh),
-        patch(
-            "db_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
-        ),
+        patch("db_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot),
         patch(f"{MOD}.warmup_structural_cache", wraps=revalidation.warmup_structural_cache) as warmup,
     ):
         result = await revalidation.revalidate_if_stale(cfg)
@@ -158,9 +156,7 @@ async def test_changed_view_body_marks_object_dirty(cfg):
     )
     with (
         patch(f"{MOD}.fetch_fingerprints", return_value=fresh),
-        patch(
-            "db_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot
-        ),
+        patch("db_semantic_mcp.infrastructure.cache.structural.fetch_snapshot_from_server", return_value=snapshot),
     ):
         result = await revalidation.revalidate_if_stale(cfg)
 

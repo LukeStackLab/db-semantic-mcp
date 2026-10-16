@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from ..config import Config
-from ..infrastructure.backends.oracle import OracleBackend
+from ..infrastructure.backends.oracle import MissingOracleDriverError, OracleBackend, _driver
 from ..infrastructure.backends.oracle_catalog import _fetch, catalog_suffix
 from ..infrastructure.backends.oracle_resolution import OracleResolver
 from ..infrastructure.connection import open_connection
@@ -16,6 +16,10 @@ from .files import SetupError
 def check_isolated(cfg):
     # Password travels over stdin, never argv, disk or diagnostics. Each row has
     # its own driver process, so Thin and Thick checks cannot poison each other.
+    try:
+        _driver()
+    except MissingOracleDriverError as exc:
+        raise SetupError(str(exc)) from None
     try:
         process = subprocess.run(
             [sys.executable, "-I", "-m", "db_semantic_mcp.setup.oracle_checks"],

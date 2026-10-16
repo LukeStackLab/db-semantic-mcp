@@ -3,35 +3,29 @@
   "profiles": {
     "readonly": {
       "profile_name": "readonly",
-      "operations": { "select": true },
+      "operations": {
+        "select": true
+      },
       "constraints": {
         "max_rows_returned": 1000,
         "query_timeout_seconds": 30,
         "allow_multi_statement": false
       },
-      "scope": { "denied_tables": [] }
+      "scope": {
+        "denied_tables": []
+      }
     },
     "read_write_safe": {
       "profile_name": "read_write_safe",
       "operations": {
-        "select": true, "insert": true, "update": true
+        "select": true,
+        "insert": true,
+        "update": true
       },
       "constraints": {
         "require_where_for_update": true,
         "max_rows_affected": 100,
         "max_rows_returned": 1000
-      }
-    },
-    "admin": {
-      "profile_name": "admin",
-      "operations": {
-        "select": true, "insert": true, "update": true, "delete": true,
-        "create": true, "alter": true, "execute": true, "merge": true
-      },
-      "constraints": {
-        "allow_multi_statement": true,
-        "query_timeout_seconds": 120,
-        "max_rows_affected": 10000
       }
     }
   }
