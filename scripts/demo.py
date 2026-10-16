@@ -10,6 +10,7 @@ from demo_support import (
     PROJECT,
     RUNTIME,
     DemoError,
+    bind_local_docker,
     compose,
     environment,
     load,
@@ -32,6 +33,7 @@ def main():
         parser.error("--purge requires down")
     if args.remote and args.command != "up":
         parser.error("--remote requires up")
+    bind_local_docker()
     state = load(create=args.command == "up")
     if args.remote:
         state["remote"] = True

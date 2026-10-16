@@ -6,19 +6,21 @@ import secrets
 import socket
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / ".db-semantic-mcp-demo"
 PROJECT = "db-semantic-demo"
 LABEL = "io.db-semantic-mcp.demo-owner"
 SERVICES = {"sql": 21433, "oracle": 21521, "remote": 21522}
+_DOCKER_ENDPOINT = None
 
 
 class DemoError(RuntimeError):
     pass
 
 
-def run(args, *, env=None, input=None, timeout=120):
+def _run_process(args, *, env=None, input=None, timeout=120):
     try:
         result = subprocess.run(args, env=env, input=input, text=True, capture_output=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
@@ -28,6 +30,47 @@ def run(args, *, env=None, input=None, timeout=120):
             f"{args[0]} operation failed (exit {result.returncode}); output withheld to protect credentials"
         )
     return result.stdout
+
+
+def bind_local_docker():
+    """Resolve with the installed CLI's precedence, then pin a local Unix socket."""
+    global _DOCKER_ENDPOINT
+    _DOCKER_ENDPOINT = None
+    # Context metadata is local; no daemon access, state creation or mutation.
+    output = _run_process(
+        ["docker", "context", "inspect", "--format", "{{json .Endpoints.docker.Host}}"],
+        env=dict(os.environ),
+    )
+    try:
+        endpoint = urlsplit(json.loads(output))
+        path = Path(endpoint.path)
+        if (
+            endpoint.scheme != "unix"
+            or endpoint.netloc
+            or endpoint.query
+            or endpoint.fragment
+            or not path.is_absolute()
+            or not path.is_socket()
+        ):
+            raise ValueError
+        # Resolve a Desktop socket symlink now; later context/env changes cannot reroute it.
+        _DOCKER_ENDPOINT = "unix://" + str(path.resolve(strict=True))
+    except (ValueError, TypeError, AttributeError, OSError):
+        raise DemoError(
+            "Local demo requires an existing local Unix Docker socket; remote, TCP and npipe endpoints are unsupported"
+        ) from None
+
+
+def run(args, *, env=None, input=None, timeout=120):
+    if args[0] == "docker":
+        if _DOCKER_ENDPOINT is None:
+            raise DemoError("Docker locality must be verified before resource operations")
+        # --host pins both Docker and Compose independently of currentContext.
+        env = dict(os.environ if env is None else env)
+        for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
+            env.pop(key, None)
+        args = ["docker", "--host", _DOCKER_ENDPOINT, *args[1:]]
+    return _run_process(args, env=env, input=input, timeout=timeout)
 
 
 def private_write(path, value):

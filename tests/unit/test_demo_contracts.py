@@ -4,6 +4,7 @@ import importlib.util
 import json
 import socket
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -92,7 +93,7 @@ def test_subprocess_failure_does_not_print_credentials(monkeypatch):
         lambda *a, **kw: subprocess.CompletedProcess(a, 1, stdout="secret password", stderr="secret password"),
     )
     with pytest.raises(demo.DemoError) as exc:
-        demo.run(["docker", "exec"], input="secret password")
+        demo.run(["test-command"], input="secret password")
     assert "secret password" not in str(exc.value)
 
 
@@ -133,6 +134,8 @@ def test_smoke_keeps_explicit_prefixed_password_and_wallet(tmp_path, monkeypatch
 def test_down_stops_without_removing_data(monkeypatch):
     import demo as controller
 
+    monkeypatch.setattr(controller, "bind_local_docker", lambda: None)
+
     state = {"token": "owned", "remote": True, "initialized": []}
     monkeypatch.setattr(controller, "load", lambda **_: state)
     monkeypatch.setattr(controller, "verify_ownership", lambda *a, **kw: {})
@@ -146,6 +149,8 @@ def test_down_stops_without_removing_data(monkeypatch):
 
 def test_purge_removes_only_verified_resources(tmp_path, monkeypatch):
     import demo as controller
+
+    monkeypatch.setattr(controller, "bind_local_docker", lambda: None)
 
     state = {"token": "owned", "remote": True, "initialized": []}
     owned = {f"{demo.PROJECT}-sql": {}, f"{demo.PROJECT}-sql-data": {}}
@@ -166,6 +171,8 @@ def test_purge_removes_only_verified_resources(tmp_path, monkeypatch):
 
 def test_init_missing_data_volume_is_refused(monkeypatch):
     import demo as controller
+
+    monkeypatch.setattr(controller, "bind_local_docker", lambda: None)
 
     monkeypatch.setattr(controller, "load", lambda **_: {"token": "owned", "remote": False, "initialized": ["sql"]})
     monkeypatch.setattr(controller, "verify_ownership", lambda *a, **kw: {})
@@ -203,3 +210,127 @@ def test_bootstrap_refuses_unknown_endpoint_or_data(problem):
         sql["Mounts"][0]["Name"] = "user-data"
     with pytest.raises(demo.DemoError):
         demo.verify_ready(state, found)
+
+
+@pytest.fixture
+def local_docker_socket():
+    # macOS sockaddr_un paths are shorter than pytest's default temp paths.
+    with tempfile.TemporaryDirectory(prefix="dmcp-", dir="/tmp") as directory:
+        with socket.socket(socket.AF_UNIX) as sock:
+            path = Path(directory).resolve() / "docker.sock"
+            sock.bind(str(path))
+            yield "unix://" + str(path)
+
+
+@pytest.mark.parametrize(
+    "variables,selected_local",
+    [
+        ({}, True),
+        ({"DOCKER_CONTEXT": "desktop-linux"}, True),
+        ({"DOCKER_CONTEXT": "remote"}, False),
+        ({"DOCKER_HOST": "tcp://192.0.2.1:2375"}, False),
+        ({"DOCKER_CONTEXT": "desktop-linux", "DOCKER_HOST": "tcp://192.0.2.1:2375"}, False),
+        ({"DOCKER_CONTEXT": "remote", "DOCKER_HOST": "LOCAL"}, True),
+    ],
+)
+def test_daemon_selection_uses_cli_effective_endpoint(monkeypatch, local_docker_socket, variables, selected_local):
+    # Docker 29.8.2 chooses DOCKER_HOST before DOCKER_CONTEXT; resolution is
+    # delegated to CLI so another version's precedence is respected as well.
+    for key in ("DOCKER_CONTEXT", "DOCKER_HOST"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in variables.items():
+        monkeypatch.setenv(key, local_docker_socket if value == "LOCAL" else value)
+    monkeypatch.setattr(demo, "_DOCKER_ENDPOINT", None)
+
+    def cli(args, *, env):
+        assert args == ["docker", "context", "inspect", "--format", "{{json .Endpoints.docker.Host}}"]
+        for key, value in variables.items():
+            assert env[key] == (local_docker_socket if value == "LOCAL" else value)
+        return json.dumps(local_docker_socket if selected_local else "ssh://remote.example")
+
+    monkeypatch.setattr(demo, "_run_process", cli)
+    if selected_local:
+        demo.bind_local_docker()
+        assert demo._DOCKER_ENDPOINT == local_docker_socket
+    else:
+        with pytest.raises(demo.DemoError, match="local Unix"):
+            demo.bind_local_docker()
+        assert demo._DOCKER_ENDPOINT is None
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "tcp://127.0.0.1:2375",
+        "ssh://remote.example",
+        "npipe:////./pipe/docker_engine",
+        "unix://remote/var/run/docker.sock",
+        "unix:///missing/docker.sock",
+        "not a URL",
+    ],
+)
+def test_unproven_daemon_rejected(monkeypatch, endpoint):
+    monkeypatch.setattr(demo, "_DOCKER_ENDPOINT", "unix:///previous.sock")
+    monkeypatch.setattr(demo, "_run_process", lambda *a, **kw: json.dumps(endpoint))
+    with pytest.raises(demo.DemoError, match="local Unix"):
+        demo.bind_local_docker()
+    assert demo._DOCKER_ENDPOINT is None
+
+
+@pytest.mark.parametrize("command", ["up", "init", "check", "down", "mcp", "doctor"])
+def test_remote_daemon_rejected_before_state_or_any_mutation(monkeypatch, tmp_path, command):
+    import demo as controller
+
+    calls = []
+    monkeypatch.setattr(demo, "_DOCKER_ENDPOINT", None)
+    monkeypatch.setattr(demo, "RUNTIME", tmp_path / "must-not-exist")
+
+    def metadata_only(args, **kw):
+        calls.append(args)
+        return json.dumps("tcp://192.0.2.1:2375")
+
+    monkeypatch.setattr(demo, "_run_process", metadata_only)
+
+    def unexpected(*a, **kw):
+        pytest.fail("Rejected daemon must not load/create state, inspect resources, mutate Docker or bootstrap SQL")
+
+    for name in ("load", "verify_ownership", "compose", "initialize", "run"):
+        monkeypatch.setattr(controller, name, unexpected)
+    monkeypatch.setattr(sys, "argv", ["demo.py", command])
+    with pytest.raises(demo.DemoError, match="local Unix"):
+        controller.main()
+    assert calls == [["docker", "context", "inspect", "--format", "{{json .Endpoints.docker.Host}}"]]
+    assert not demo.RUNTIME.exists()
+
+
+def test_all_docker_commands_stay_pinned_after_environment_changes(monkeypatch, local_docker_socket):
+    monkeypatch.setattr(demo, "_DOCKER_ENDPOINT", local_docker_socket)
+    calls = []
+
+    def capture(args, **kw):
+        calls.append((args, kw["env"]))
+        return ""
+
+    monkeypatch.setattr(demo, "_run_process", capture)
+    overrides = {
+        "DOCKER_HOST": "tcp://192.0.2.1:2375",
+        "DOCKER_CONTEXT": "remote",
+        "DOCKER_TLS_VERIFY": "1",
+        "DOCKER_TLS": "1",
+        "DOCKER_CERT_PATH": "/remote/certs",
+    }
+    for key, value in overrides.items():
+        monkeypatch.setenv(key, value)
+    demo.run(["docker", "container", "ls"])
+    demo.run(["docker", "compose", "up", "-d"], env={**overrides, "DEMO_VALUE": "kept"})
+    for args, env in calls:
+        assert args[:3] == ["docker", "--host", local_docker_socket]
+        assert all(key not in env for key in overrides)
+    assert calls[1][1]["DEMO_VALUE"] == "kept"
+
+
+def test_resource_commands_require_prior_locality_guard(monkeypatch):
+    monkeypatch.setattr(demo, "_DOCKER_ENDPOINT", None)
+    monkeypatch.setattr(demo, "_run_process", lambda *a, **kw: pytest.fail("No Docker resource access before guard"))
+    with pytest.raises(demo.DemoError, match="locality"):
+        demo.run(["docker", "container", "rm", "-f", "anything"])

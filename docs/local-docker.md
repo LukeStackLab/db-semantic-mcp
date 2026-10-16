@@ -4,7 +4,7 @@
 
 ## 啟動與檢查
 
-需要 Docker Engine / Docker Desktop、Compose v2，以及 `uv`。在 repository 根目錄執行：
+需要 Docker Engine / Docker Desktop、Compose v2，以及 `uv`。Controller 目前支援 macOS／Linux 的本機 Unix socket，包括 Docker Desktop；不支援原生 Windows `npipe`，WSL 尚未驗證。在 repository 根目錄執行：
 
 ```bash
 uv sync --extra dev --extra oracle
@@ -25,6 +25,8 @@ uv run python scripts/demo.py doctor --provider oracle
 | 選配遠端 Oracle Free 23 | `db-semantic-demo-remote` | `21522` | 3 GiB |
 
 建議 Docker 至少配置 8 GiB RAM；啟用 remote 時配置 12 GiB，並預留映像與資料卷的磁碟空間。SQL Server 映像為 `linux/amd64`，Apple Silicon 需要 Docker Desktop 的 amd64 模擬支援；Oracle 映像支援 ARM64。實測環境為 Apple Silicon／Docker Desktop。映像 tag 會更新，因此重新 pull 後的版本可能不同。SQL Server Developer 與 Oracle Free 僅用於符合其授權的開發／測試用途。
+
+所有命令在讀寫私有 state 前，先用唯讀 `docker context inspect` 取得目前 Docker CLI 實際選用的 endpoint。`DOCKER_CONTEXT`、`DOCKER_HOST` 與設定檔的優先序交由已安裝 CLI 解析。不同版本可能有差異，實作依據可見 [Docker CLI endpoint 解析](https://github.com/docker/cli/blob/v29.8.2/cli/command/cli.go#L413)。只接受存在於本機的 Unix socket；SSH、TCP（含 localhost TCP）、npipe 或無法確認的 endpoint 均拒絕。通過後，所有 Docker／Compose 命令固定使用已驗證 socket 的 `--host`，移除 context／host／TLS environment overrides，不更改使用者的 Docker context。
 
 所有對外 port 綁定 `127.0.0.1`。本示範採 TCP，profile 明確設定 `encrypt=false`。不會自動建立 TCPS 憑證；先前 TCPS 驗證見 [0.8.0 驗證紀錄](validation-0.8.0.md)。DB link 使用私有 Compose 網路，不能據此宣稱遠端傳輸已加密。
 
@@ -114,8 +116,8 @@ uv run python scripts/demo.py down --purge
 
 | 檢查 | 結果 |
 |---|---|
-| `uv run --extra oracle pytest -q tests/unit/test_demo_contracts.py` | 17 passed |
-| `uv run --extra oracle pytest -q` | 858 passed、14 skipped，live tests 預設 opt-out |
+| `uv run --extra oracle pytest -q tests/unit/test_demo_contracts.py` | 37 passed，含 daemon locality 修正 |
+| `uv run --extra oracle pytest -q` | 初次交付 858 passed、14 skipped；live tests 預設 opt-out |
 | 新 demo 的 SQL + Oracle Thin portable live suite | 12 passed、2 skipped |
 | 同一 Oracle 的 Thick portable live suite | 9 passed、2 skipped |
 | clean-wheel base／Thin／Thick | 三組 CLI、doctor、12-tool handshake 與實際查詢通過 |
@@ -124,3 +126,5 @@ uv run python scripts/demo.py down --purge
 | `uv lock --check`、`uv build` | 通過；sdist 包含公開 demo 檔案，兩種產物不含私有狀態 |
 
 live suite 的兩項 skip 為需要另外授權的寫入測試；本 demo profile 保持 readonly。Stop/up/init 與錯誤 ownership token 拒絕已做實機驗證；purge 的精確刪除範圍由 focused tests 驗證。所有既有非 demo 容器的 ID 在操作前後相同。一般使用只需執行上方 `up` 與 `check`；完整 live matrix 的 opt-in 方法沿用 [testing-oracle.md](testing-oracle.md)。
+
+2026-10-16 locality 修正後另執行 37 項 focused tests、修改檔案 lint／format，以及真實 Desktop socket 的 repeat up／三組 profile check。暫存遠端 context 對 up/init/check/down/mcp/doctor 全部拒絕，遠端 DOCKER_HOST 也拒絕；私有 state 與使用者 current context 未變。完整 suite 未因這次局部修正重跑。
