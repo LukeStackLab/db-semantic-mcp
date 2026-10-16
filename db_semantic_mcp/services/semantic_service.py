@@ -7,6 +7,7 @@ from ..infrastructure.cache.semantic import (
     get_table_analysis,
     upsert_table_analysis,
 )
+from ..infrastructure.recording.sqlite import recording_connect
 
 _AUDIT_COL_PATTERNS = {
     "audit_timestamp": re.compile(r"^(created|updated|modified|deleted)(_?at|_?on|_?time|_?date)?$", re.I),
@@ -34,7 +35,7 @@ async def _load_table_structure(
     schema: str,
     table: str,
 ) -> dict | None:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT structural_hash FROM sc_tables WHERE database_name=? AND schema_name=? AND table_name=?",
@@ -348,7 +349,7 @@ async def detect_lookup_tables(
     need_classify: list[tuple[str, str]] = []
     kw_lower = keyword.lower() if keyword else None
     cache_allowed = _classification_cache_allowed(policy)
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         query = (
             "SELECT t.schema_name,t.table_name,t.structural_hash,a.status,"

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import aiosqlite
 
 from ..infrastructure.cache.revalidation import snapshot_freshness
+from ..infrastructure.recording.sqlite import recording_connect
 
 if TYPE_CHECKING:
     from .policy_service import PolicyService
@@ -91,7 +92,7 @@ async def list_tables(
         params.append(f"%{kw}%")
     sql += " ORDER BY schema_name,table_name"
     # Scope filtering precedes limit so denied rows cannot hide allowed matches.
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(sql, params)
         result = []
@@ -120,7 +121,7 @@ async def describe_table(
     from .semantic_service import _classification_cache_allowed, _classification_for_structure
 
     cache_allowed = _classification_cache_allowed(policy)
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         query = (
             "SELECT t.structural_hash,a.classification,a.status,a.structural_hash AS analysis_hash,"
@@ -226,7 +227,7 @@ async def search_documents(db_path: str, database: str, *, schemas=None, policy=
         from . import oracle_metadata
 
         return await oracle_metadata.search_documents(db_path, database, schemas=schemas, policy=policy)
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT schema_name,table_name FROM sc_tables WHERE database_name=? ORDER BY schema_name,table_name",
@@ -264,7 +265,7 @@ async def search_documents(db_path: str, database: str, *, schemas=None, policy=
 
 
 async def database_summary(db_path: str, database: str, *, policy=None) -> dict:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         counts = {}
         for name in ("sc_tables", "sc_columns", "sc_foreign_keys", "sc_indexes", "sc_objects"):

@@ -5,6 +5,8 @@ from math import ceil
 
 import aiosqlite
 
+from ..infrastructure.recording.sqlite import recording_connect
+
 _METRIC_COLUMNS = {
     "route_type": "TEXT",
     "was_direct_execute": "INTEGER",
@@ -85,7 +87,7 @@ def _p95(values: list[int]) -> int:
 async def query_top_tools(db_path: str, *, limit: int = 10) -> list[dict]:
     if not 1 <= limit <= 100:
         raise ValueError("metrics limit must be between 1 and 100")
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT tool_name,COUNT(*) AS call_count,SUM(response_bytes) AS total_bytes,"

@@ -7,6 +7,7 @@ from copy import deepcopy
 import aiosqlite
 
 from ..infrastructure.cache.structural import read_schema_version
+from ..infrastructure.recording.sqlite import recording_connect
 
 _GRAPH_CACHE: dict[tuple[str, str, str], dict[tuple[str, str], list[dict]]] = {}
 _MAX_HOPS = 20
@@ -129,7 +130,7 @@ def _reverse_edge(edge: dict) -> dict:
 
 async def _read_fk_sources(db_path: str, database: str):
     """Read FK rows, column nullability and unique indexes in one pass."""
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM sc_foreign_keys WHERE database_name=?", (database,))
         groups = group_foreign_keys([dict(r) for r in await cur.fetchall()])

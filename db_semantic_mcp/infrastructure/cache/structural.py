@@ -18,6 +18,7 @@ from ..queries.metadata_queries import (
     GET_PRIMARY_KEYS,
     GET_TABLES,
 )
+from ..recording.sqlite import recording_connect
 from ..workers import run_db_work
 from .probe import (
     SchemaFingerprints,
@@ -112,7 +113,7 @@ def compute_comment_hash(comments) -> str:
 
 
 async def read_schema_version(db_path: str, database: str) -> dict | None:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT * FROM schema_version WHERE database_name = ?",
@@ -276,7 +277,7 @@ async def write_structural_snapshot(
     captured_at = datetime.now(UTC).isoformat()
     objects_marked = 0
 
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         await db.execute("BEGIN")
         try:
             await _replace_snapshot_rows(db, database, snap, table_hashes)

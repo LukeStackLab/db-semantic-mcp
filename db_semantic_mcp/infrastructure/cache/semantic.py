@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 
 import aiosqlite
 
+from ..recording.sqlite import recording_connect
+
 
 async def get_table_analysis(
     db_path: str,
@@ -10,7 +12,7 @@ async def get_table_analysis(
     schema: str,
     table: str,
 ) -> dict | None:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT * FROM sem_table_analysis WHERE database_name=? AND schema_name=? AND table_name=?",
@@ -40,7 +42,7 @@ async def upsert_table_analysis(
     is_lookup: bool | None = None,
     error_message: str | None = None,
 ) -> None:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         await db.execute(
             "INSERT OR REPLACE INTO sem_table_analysis "
             "(database_name, schema_name, table_name, structural_hash, status, "
@@ -71,7 +73,7 @@ async def get_object_definition(
     obj_name: str,
     obj_type: str,
 ) -> dict | None:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT * FROM sem_object_definitions "
@@ -103,7 +105,7 @@ async def upsert_object_definition(
     affected_tables: list | None = None,
     error_message: str | None = None,
 ) -> None:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         await db.execute(
             "INSERT OR REPLACE INTO sem_object_definitions "
             "(database_name, schema_name, object_name, object_type, object_hash, "
@@ -132,7 +134,7 @@ async def list_pending_table_analyses(
     database: str,
     limit: int,
 ) -> list[tuple[str, str]]:
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT schema_name, table_name FROM sem_table_analysis "
@@ -156,7 +158,7 @@ async def record_table_analysis_failure(
 ) -> None:
     """Preserve prior analysis while persisting fair, bounded retry scheduling."""
     now = datetime.now(UTC)
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         cur = await db.execute(
             "SELECT attempt_count FROM sem_table_analysis WHERE database_name=? AND schema_name=? AND table_name=?",
             (database, schema, table),
@@ -191,7 +193,7 @@ async def enqueue_all_tables(db_path: str, database: str) -> int:
 
     Each row carries its own per-table structural hash from sc_tables.
     """
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         await db.execute(
             "INSERT OR IGNORE INTO sem_table_analysis "
             "(database_name, schema_name, table_name, structural_hash, status) "

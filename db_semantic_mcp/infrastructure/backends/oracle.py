@@ -112,7 +112,10 @@ class OracleBackend:
             connection.call_timeout = cfg.query_timeout * 1000
             if options.driver_mode == "thick":
                 with connection.cursor() as cursor:
-                    cursor.execute(_SESSION_FORMATS)
+                    from ..recording.context import record_sql
+
+                    with record_sql("db", _SESSION_FORMATS):
+                        cursor.execute(_SESSION_FORMATS)
             connection.outputtypehandler = number_output_handler(driver, driver_mode=options.driver_mode)
             if options.current_schema:
                 connection.current_schema = options.current_schema.upper()

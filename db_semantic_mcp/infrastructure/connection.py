@@ -46,6 +46,9 @@ def open_connection(cfg: Config | None = None) -> Iterator[Any]:
     from .backends import backend_for
 
     conn = backend_for(cfg).connect(cfg)
+    from .recording.dbapi import instrument_db_connection
+
+    conn = instrument_db_connection(conn)
     try:
         yield conn
     finally:

@@ -5,6 +5,7 @@ import aiosqlite
 from ..infrastructure.backends.oracle_catalog import _fetch, catalog_suffix, native_type
 from ..infrastructure.backends.oracle_resolution import resolve_object
 from ..infrastructure.connection import open_connection
+from ..infrastructure.recording.sqlite import recording_connect
 from ..infrastructure.workers import run_db_work
 
 
@@ -71,7 +72,7 @@ async def list_tables(db_path, database, *, schemas=None, keyword=None, limit=No
         sql += " AND instr(lower(schema_name || '.' || object_name),lower(?)) > 0"
         params.append(keyword)
     sql += " ORDER BY schema_name,object_name,object_type"
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(sql, params)
         candidates = []
@@ -234,7 +235,7 @@ async def describe_table(schema, table, *, columns=None, policy):
 
 async def search_documents(db_path, database, *, schemas=None, policy):
     rows = await list_tables(db_path, database, schemas=schemas, policy=policy)
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         for row in rows:
             cur = await db.execute(
                 "SELECT column_name FROM sc_columns WHERE database_name=? AND schema_name=? AND table_name=? ORDER BY ordinal_position",

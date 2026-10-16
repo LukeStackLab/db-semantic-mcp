@@ -30,6 +30,10 @@ _call: ContextVar[object | None] = ContextVar("execution_recording_call", defaul
 _suppress: ContextVar[bool] = ContextVar("execution_recording_suppress", default=False)
 
 
+def recording_active() -> bool:
+    return _call.get() is not None and not _suppress.get()
+
+
 def _action_for(tool_name: str) -> str | None:
     if tool_name in EXPLORATION_TOOLS:
         return "探索"

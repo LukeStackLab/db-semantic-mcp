@@ -21,6 +21,7 @@ from ..queries.probe_queries import (
     PROBE_MODULES,
     PROBE_TABLES,
 )
+from ..recording.sqlite import recording_connect
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ async def read_fingerprints(
 ) -> tuple[dict[TableKey, str], dict[ObjectKey, str]]:
     tables: dict[TableKey, str] = {}
     objects: dict[ObjectKey, str] = {}
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         cur = await db.execute(
             "SELECT kind, schema_name, name, object_type, fingerprint FROM sc_fingerprints WHERE database_name=?",
             (database,),

@@ -2,6 +2,8 @@ from pathlib import Path
 
 import aiosqlite
 
+from ..recording.sqlite import recording_connect
+
 SCHEMA_TABLES = [
     "schema_version",
     "sc_tables",
@@ -208,7 +210,7 @@ async def _migrate(db: aiosqlite.Connection) -> None:
 
 async def init_store(db_path: str) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(db_path) as db:
+    async with recording_connect(db_path) as db:
         await db.executescript(SCHEMA_DDL)
         await _migrate(db)
         from ...services.metrics_service import migrate_metrics
