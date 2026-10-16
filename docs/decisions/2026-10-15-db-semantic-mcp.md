@@ -22,5 +22,6 @@
 | 16 | 內部可信 catalog 查詢明確使用 `SYS.ALL_*`、`SYS.USER_*`、`SYS.PRODUCT_COMPONENT_VERSION` 及 `SYS.DUAL`。 | 真實私人同名 view 可遮蔽未限定 schema 的 catalog 查詢。 | 依賴 SYS 公開 view 的可見性；不授予額外 SYS 業務 scope，也不改寫 caller SQL。 |
 | 17 | 每次回應只保留必要來源資訊與能力旗標，完整 capabilities 放在 `get_execution_policy` 與 `doctor`。 | 原先來源區塊單獨即有 1,189 UTF-8 bytes，重複說明增加每次工具呼叫的成本。 | 需要完整說明的 caller 必須另外查詢 policy 或 doctor。 |
 | 18 | 補上可重跑的 Docker demo，預設一個 SQL Server 加一個 Oracle，遠端測試另選第二個 Oracle。 | 使用者補充要求在本機新建模擬資料庫測試；Thin／Thick 可共用同一 Oracle。 | 私有 demo 資料與資源會保留供重跑，需要使用者日後執行文件中的停止／清理指令。 |
+| 19 | Docker demo 只接受 CLI 解析出的本機 Unix socket，並固定後續指令的 endpoint。 | 避免遠端 daemon ownership 與本機 SQL bootstrap 錯配；由 CLI 處理版本相關的 context 優先序。 | 原生 Windows named pipe demo 需要後續支援；目前本機 harness 以 macOS／Linux Unix socket 為範圍。 |
 
 另有一項交付修正：每個 Oracle request 固定使用同版 policy，避免 proof 與 FK 過濾混用版本。

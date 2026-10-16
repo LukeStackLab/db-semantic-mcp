@@ -68,3 +68,5 @@ autocommit 關閉。超過 affected-row cap 則 rollback；commit/rollback ackno
 ## 本地 Docker 驗證環境補充
 
 使用者於 2026-10-16 補充要求新建本機 SQL Server／Oracle 與模擬資料驗證 MCP。交付可重跑的 Compose 與初始化／檢查指令。預設一個 SQL Server 與一個 Oracle，第二個 Oracle 為 DB link 測試選項；Thin／Thick 共用同一 Oracle，差異位於 MCP driver。資料及私有 profile／憑證留在明確隔離的本機 demo 目錄，與 SDD 工作目錄分離。只操作自有、可驗證 ownership 的 demo resources，不修改既有 Client／keyring／其他資料庫。停止與資料刪除分開，後者須由明確指令選擇。
+
+Docker demo 必須在私有 state 讀寫及任何資源操作前，用已安裝 Docker CLI 的唯讀 context inspect 解析有效 daemon endpoint，只接受可證明為本機的 Unix socket；後續 Docker 操作固定到該 endpoint，清除 context／host／TLS overrides。遠端或無法證明的 endpoint 拒絕執行；原生 Windows named pipe demo 不在本輪支援範圍。
