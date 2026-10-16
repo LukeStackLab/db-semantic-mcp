@@ -87,7 +87,8 @@ async def test_singleflight_failure_is_retryable_and_cancellation_does_not_cance
     with pytest.raises(RuntimeError):
         await second
     assert attempts == ["one"]
-    assert (await sources.source_context(ctx, "local")) is ctx
+    local = await sources.source_context(ctx, "local")
+    assert local is not ctx and local.cfg.cache_path == ctx.cfg.cache_path
     assert (await sources.source_context(ctx, "one")).cfg.source_id == "one"
     assert attempts == ["one", "one"]
     await shutdown_db_workers()
@@ -178,10 +179,10 @@ async def test_cancelled_source_worker_keeps_slot_until_actual_cleanup(base):
     started = threading.Event()
     finish = threading.Event()
     cleaned = threading.Event()
-    async with sources.bind_source(ctx, "local"):
+    async with sources.bind_source(ctx, "local") as request:
 
         def slow():
-            assert get_context() is ctx
+            assert get_context() is request
             started.set()
             try:
                 finish.wait(5)
@@ -211,3 +212,55 @@ def test_retargeted_revalidation_state_remains_bounded(base):
         revalidation.note_refreshed(cfg)
     assert len(revalidation._STATES) <= 256
     revalidation.reset_state()
+
+
+@pytest.mark.asyncio
+async def test_local_request_and_worker_keep_snapshot_during_concurrent_reload(base, monkeypatch):
+    import importlib
+
+    from db_semantic_mcp.server.tools import policy as policy_tool
+    from db_semantic_mcp.services import policy_service
+
+    mod = importlib.import_module("db_semantic_mcp.server.app")
+    ctx, _ = base
+    ctx.policy.current_policy().scope.sources["one"].allowed_schemas = ["ERP"]
+    later = ctx.policy.current_policy().model_copy(deep=True)
+    later.scope.sources["one"].allowed_schemas = ["ERP", "SECRET"]
+    loads = []
+
+    def load(cfg):
+        loads.append(cfg.source_id)
+        return later.model_copy(deep=True)
+
+    monkeypatch.setattr(policy_service, "load_active_policy", load)
+    monkeypatch.setattr(mod, "_ctx", ctx)
+    monkeypatch.setattr(mod, "_TOOL_REGISTRY", {})
+    monkeypatch.setattr(mod, "_OUTPUT_VALIDATORS", {})
+    started, finish = asyncio.Event(), asyncio.Event()
+    observations = []
+
+    def scope():
+        return list(get_context().policy.current_policy().scope.sources["one"].allowed_schemas)
+
+    async def handler(args):
+        observations.append(scope())
+        started.set()
+        await finish.wait()
+        observations.append(scope())
+        observations.append(await run_db_work(get_config(), scope))
+        return []
+
+    mod.register_tool(Tool(name="get_tables", inputSchema={"type": "object"}), handler)
+    mod.register_tool(Tool(name="get_execution_policy", inputSchema={"type": "object"}), policy_tool._get_policy)
+    request = asyncio.create_task(mod._dispatch_tool("get_tables", {}))
+    await started.wait()
+    reloaded = await mod._dispatch_tool("get_execution_policy", {"reload": True})
+    finish.set()
+    assert not (await request).isError and not reloaded.isError
+    assert observations == [["ERP"]] * 3
+    assert reloaded.structuredContent["scope"]["sources"]["one"]["allowed_schemas"] == ["ERP", "SECRET"]
+    assert loads == ["local"]
+    async with sources.bind_source(ctx, "local"):
+        assert scope() == ["ERP", "SECRET"]
+    assert ctx.cfg._policy_snapshot is None
+    await shutdown_db_workers()

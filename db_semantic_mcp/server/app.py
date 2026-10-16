@@ -262,7 +262,11 @@ async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
         source = arguments.get("source", "local")
         if name not in EXPLORATION_TOOLS and source != "local":
             raise ValueError("This tool does not select a source; use native SQL references")
-        if source == "local" and not (name == "get_execution_policy" and arguments.get("reload")):
+        if (
+            source == "local"
+            and get_config().database_type != "oracle"
+            and not (name == "get_execution_policy" and arguments.get("reload"))
+        ):
             return await _dispatch_bound_tool(name, arguments)
         base = get_context()
         if name == "get_execution_policy" and arguments.get("reload"):

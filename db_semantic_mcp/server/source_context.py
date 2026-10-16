@@ -71,10 +71,18 @@ async def _initialize(ctx):
 
 
 async def source_context(base, source="local"):
+    from .app import Context
+
     if not isinstance(source, str):
         raise ValueError("source must be a configured source id")
     if source == "local":
-        return base
+        if base.cfg.database_type != "oracle":
+            return base
+        cfg = base.cfg.model_copy(deep=True)
+        cfg._policy_snapshot = base.policy.current_policy().model_copy(deep=True)
+        ctx = Context(cfg)
+        ctx.policy.load()
+        return ctx
     if source not in base.cfg.sources:
         raise ValueError("Unknown source")
     # Every request proves the route/principal and current policy BEFORE cache
@@ -87,8 +95,6 @@ async def source_context(base, source="local"):
     key = (id(base), source)
     entry = states.get(key)
     if entry is None or entry[0] != cfg.cache_path:
-        from .app import Context
-
         ctx = Context(cfg)
         ctx.policy.load()
         task = asyncio.create_task(_initialize(ctx))

@@ -21,7 +21,7 @@ def register() -> None:
 
 async def _get_policy(args: dict) -> dict:
     ctx = get_context()
-    if args.get("reload"):
+    if args.get("reload") and ctx.cfg._policy_snapshot is None:
         ctx.policy.reload()
     sources = [{"id": "local", "database_type": ctx.cfg.database_type}]
     policy = ctx.policy.current_policy()

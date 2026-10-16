@@ -198,3 +198,51 @@ async def test_object_resource_preserves_unknown_io_and_decodes_package_body(ora
     result = json.loads(await schema.read_resource(AnyUrl("semantic://summary/object/PACKAGE%20BODY/ERP.PKG")))
     assert describe.call_args.args[2] == "PACKAGE BODY"
     assert result["data"]["io_completeness"] == "unknown"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_secret", [False, True])
+async def test_alias_fk_filter_uses_proof_policy_when_disk_changes(
+    oracle_metadata_fixture, monkeypatch, initial_secret
+):
+    from db_semantic_mcp.services import policy_service
+
+    _, cfg, policy, _ = oracle_metadata_fixture
+    if initial_secret:
+        policy.current_policy().scope.sources["sales"].allowed_schemas.append("SECRET")
+    later = policy.current_policy().model_copy(deep=True)
+    later.scope.sources["sales"].allowed_schemas = ["ERP"] if initial_secret else ["ERP", "SECRET"]
+    loads = []
+
+    def load(config):
+        loads.append(config.source_id)
+        return later
+
+    monkeypatch.setattr(policy_service, "load_active_policy", load)
+    original_fetch = oracle_metadata._fetch
+
+    def fetch(conn, sql, params):
+        if "c.constraint_type='R'" in sql:
+            return [
+                (
+                    "ID",
+                    "SECRET",
+                    "HIDDEN",
+                    "ID",
+                    "FK_SECRET",
+                    1,
+                    "ENABLED",
+                    "VALIDATED",
+                    "NOT DEFERRABLE",
+                    "ENABLED",
+                    "VALIDATED",
+                    "NOT DEFERRABLE",
+                )
+            ]
+        return original_fetch(conn, sql, params)
+
+    monkeypatch.setattr(oracle_metadata, "_fetch", fetch)
+    result = await metadata_service.describe_table(cfg.cache_path, cfg.database, "ERP", "REMOTE", policy=policy)
+    assert bool(result["foreign_keys"]) is initial_secret
+    assert loads == []  # canonical FK filtering must not reload after proof
+    await shutdown_db_workers()

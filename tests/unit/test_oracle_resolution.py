@@ -108,9 +108,14 @@ def test_remote_needs_policy_and_each_source_operation(monkeypatch):
         resolver.resolve(ref("ORDERS", "ERP", "SALES"), "UPDATE")
     policy.scope.sources["sales"].operations.update = True
     cfg.sources["sales"] = cfg.sources["sales"].model_copy(update={"readonly": True})
+    # An existing proof retains its policy; changed grants apply to a new one.
+    with pytest.raises(PermissionError, match="not enabled for the remote source"):
+        resolver.resolve(ref("ORDERS", "ERP", "SALES"), "UPDATE")
+    resolver = OracleResolver(cfg, MagicMock(), policy)
     with pytest.raises(PermissionError, match="readonly"):
         resolver.resolve(ref("ORDERS", "ERP", "SALES"), "UPDATE")
     cfg.sources["sales"] = cfg.sources["sales"].model_copy(update={"readonly": False})
+    resolver = OracleResolver(cfg, MagicMock(), policy)
     assert resolver.resolve(ref("ORDERS", "ERP", "SALES"), "UPDATE").source == "sales"
 
 

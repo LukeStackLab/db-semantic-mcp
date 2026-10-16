@@ -24,8 +24,14 @@ class Resolution:
 
 class OracleResolver:
     def __init__(self, cfg: Config, conn, policy: PolicyProfile):
-        self.cfg, self.conn, self.policy = cfg, conn, policy
-        self.result = Resolution(source_configs={"local": cfg.for_source("local")})
+        # Canonical configs must carry the exact policy used by this proof.
+        # Metadata consumers may construct another PolicyService from them;
+        # that must never reload a newer file after authorization.
+        self.policy = policy.model_copy(deep=True)
+        self.cfg = cfg.model_copy(deep=True)
+        self.cfg._policy_snapshot = self.policy
+        self.conn = conn
+        self.result = Resolution(source_configs={"local": self.cfg.for_source("local")})
         self._schema = None
         self._scope_frames = []
 
