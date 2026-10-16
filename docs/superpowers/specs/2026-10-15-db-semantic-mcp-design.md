@@ -35,7 +35,7 @@ Source definition 僅表示路由，不授權。Policy 對 local 沿用現有 sc
 
 Oracle 內部 metadata 與授權證據查詢明確使用 SYS.ALL_*／SYS.USER_* 等可信系統 view，內部純量查詢使用 SYS.DUAL，避免私人同名 view／synonym 遮蔽；不改使用者 SQL，也不授予額外 SYS scope。Oracle metadata 取 ALL_* 可見 catalog，先按來源及 policy 過濾再寫 cache。預設 inventory 僅取 ALL_USERS.ORACLE_MAINTAINED=N 的應用 schemas；明確 policy.allowed_schemas 可納入系統 schema。capabilities 與文件揭露此探索範圍，避免掃描大量公開系統 package source。複合 FK 保留順序與 constraint identity；disabled、not validated、deferrable 或 functional index 證據不足時不推論可信唯一性。snapshot fingerprint 必須涵蓋 constraint/index/comment/definition 變更；可先採 catalog-only snapshot hashing，並以 TTL/worker bound 限制成本，不能僅依 LAST_DDL_TIME 而漏掉變更。
 
-columns header 本身超過 max_response_bytes 時回受控的結果過寬錯誤，不回超出上限的欄位清單，也不宣稱完整。
+columns header 本身超過 max_response_bytes 時，不回超出上限的欄位清單。保留 driver 已執行 SQL 的 executed 狀態，回 columns_omitted=true、truncated=true、result_complete=false 的有界不完整結果，提示縮小 projection；不把 executed 視為完整結果保證。
 
 保留 bounded synchronous driver workers，不同 driver 不強迫混用 async API。不在每個 tool 引入全庫即時掃描。Remote source on-demand warmup、single-flight、stale-while-revalidate；離線舊 cache 明示狀態。query_timeout 的實際語意需如實揭露；Oracle call_timeout 是單次 round trip，不能誤稱整個查詢總 deadline。
 
@@ -70,3 +70,10 @@ autocommit 關閉。超過 affected-row cap 則 rollback；commit/rollback ackno
 使用者於 2026-10-16 補充要求新建本機 SQL Server／Oracle 與模擬資料驗證 MCP。交付可重跑的 Compose 與初始化／檢查指令。預設一個 SQL Server 與一個 Oracle，第二個 Oracle 為 DB link 測試選項；Thin／Thick 共用同一 Oracle，差異位於 MCP driver。資料及私有 profile／憑證留在明確隔離的本機 demo 目錄，與 SDD 工作目錄分離。只操作自有、可驗證 ownership 的 demo resources，不修改既有 Client／keyring／其他資料庫。停止與資料刪除分開，後者須由明確指令選擇。
 
 Docker demo 必須在私有 state 讀寫及任何資源操作前，用已安裝 Docker CLI 的唯讀 context inspect 解析有效 daemon endpoint，只接受可證明為本機的 Unix socket；後續 Docker 操作固定到該 endpoint，清除 context／host／TLS overrides。遠端或無法證明的 endpoint 拒絕執行；原生 Windows named pipe demo 不在本輪支援範圍。
+
+
+## 最終審查補強
+
+Oracle live 欄位證據必須涵蓋隱含自訂程式碼風險。ORDER BY 比較 named object type 可觸發 MAP method；讀取 NUMBER virtual column 也可呼叫自訂函式。無法證明安全時，在 caller SQL parse／execute 前拒絕，包含 alias、VIEW、remote 與 wildcard 等路徑；不能以事後 rollback 補救自主交易。普通 physical scalar 欄位查詢應保持可用。
+
+Local cache identity 必須在正式啟動、init_store、cache_first、warmup 與讀取前固定，包含 provider、endpoint／service、principal、Oracle options、effective policy 與 source 身分。使用者設定的 cache path 作為根路徑，既有 cache 不刪除；相同 identity 穩定重用，source clone、request snapshot 與 reload 使用一致規則。

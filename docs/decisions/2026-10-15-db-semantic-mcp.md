@@ -23,5 +23,8 @@
 | 17 | 每次回應只保留必要來源資訊與能力旗標，完整 capabilities 放在 `get_execution_policy` 與 `doctor`。 | 原先來源區塊單獨即有 1,189 UTF-8 bytes，重複說明增加每次工具呼叫的成本。 | 需要完整說明的 caller 必須另外查詢 policy 或 doctor。 |
 | 18 | 補上可重跑的 Docker demo，預設一個 SQL Server 加一個 Oracle，遠端測試另選第二個 Oracle。 | 使用者補充要求在本機新建模擬資料庫測試；Thin／Thick 可共用同一 Oracle。 | 私有 demo 資料與資源會保留供重跑，需要使用者日後執行文件中的停止／清理指令。 |
 | 19 | Docker demo 只接受 CLI 解析出的本機 Unix socket，並固定後續指令的 endpoint。 | 避免遠端 daemon ownership 與本機 SQL bootstrap 錯配；由 CLI 處理版本相關的 context 優先序。 | 原生 Windows named pipe demo 需要後續支援；目前本機 harness 以 macOS／Linux Unix socket 為範圍。 |
+| 20 | 過寬標頭採有界不完整結果，保留 `executed`，並回 `columns_omitted`／`truncated`／`result_complete=false`。 | SQL 已交給 driver 執行，不能為輸出過寬而假稱未執行；本項修訂第 10 項的 error 用語。 | Caller 必須檢查完整性旗標，不能把 `executed` 當成完整保證。 |
+| 21 | 執行前以 live 欄位證據拒絕無法證明安全的 named object type／virtual expression。 | MAP 與 virtual-column 函式已實測在 SELECT-only policy 下觸發自主寫入。 | 部分合法複雜欄位查詢需要改讀 physical scalar 欄位或等待明確支援。 |
+| 22 | 所有正式 local cache 入口先建立連線／policy／source identity namespace，原 path 留作根路徑。 | Oracle env 模式的不同 endpoint／principal／mode 原先會共用 cache。 | 舊 cache 可能需要一次 warmup，並產生各 identity 的獨立檔案；不刪除舊檔。 |
 
 另有一項交付修正：每個 Oracle request 固定使用同版 policy，避免 proof 與 FK 過濾混用版本。
