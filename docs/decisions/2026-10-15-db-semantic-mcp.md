@@ -30,3 +30,13 @@
 | 24 | Stored scalar MVIEW 只接受已證明 `ON_QUERY_COMPUTATION=N`。 | [Oracle 19c catalog](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_MVIEWS.html) 可標示 real-time MV；目前沒有解析其動態路徑。 | Real-time MV 直接讀取可能安全，仍保守不支援；沒有宣稱此案例已實機重現。 |
 
 另有一項交付修正：每個 Oracle request 固定使用同版 policy，避免 proof 與 FK 過濾混用版本。
+
+## 2026-10-16 Repository 改名
+
+使用者已明確授權將 GitHub repository、本機資料夾及相關連結改為 `db-semantic-mcp`。本項修訂第 3 項的遠端改名限制；Git Push 與 PyPI 發布仍未授權。
+
+本機 checkout 已改為 `/Users/luke/Documents/Github/db-semantic-mcp`，保留既有分支、commit、私有 demo 設定與資料。
+
+GitHub 登入帳號 `lukedev999-boom` 對 `LukeStackLab/sqlserver-semantic-mcp` 有 Push 權限，但沒有 Admin 權限。改名 API 回傳 HTTP 404，遠端改名未完成。因此 `origin`、README 與套件 metadata 暫時保留目前可用的 GitHub URL，避免指向尚未建立的 repository。預定名稱為 `LukeStackLab/db-semantic-mcp`；具備 Admin 權限後才能完成遠端改名及 URL 同步。
+
+舊版 migration 識別字與歷史設計紀錄保留原名，以維持升級相容性。
