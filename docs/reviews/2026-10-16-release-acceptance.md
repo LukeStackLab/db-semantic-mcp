@@ -22,6 +22,8 @@
 - Python 3.11 clean wheel：無 Oracle driver 的 SQL-only、Oracle Thin、Oracle Thick，各自 doctor、12-tool MCP 與實際查詢通過。較早的 TCPS direct／TNS／wrong-DN／downgrade 與實際 MCP 證據保留在 [公開驗證紀錄](../validation-0.8.0.md)。
 - Wheel 有 95 entries，含 `oracle_read_safety`；wheel／sdist 均無私有 SDD workspace、demo state 或舊 runtime namespace。已掃描測試憑證值，沒有納入 artifact 或提交內容。
 
+以下 checksum 屬於改名前的驗收建置。後續 repository URL 與文件變更會使重新建置的 artifact 產生不同 checksum；本表不代表目前 `dist/` 的內容。
+
 | Artifact | SHA-256 |
 |---|---|
 | `lukestack_db_semantic_mcp-0.8.0-py3-none-any.whl` | `72438cbeefb06a168d76a10855be34a5be5674642a4d34b1a2e39d11d7d2384c` |

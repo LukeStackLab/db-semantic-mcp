@@ -1,6 +1,6 @@
 # 0.8.0 validation evidence
 
-Validated on 2026-10-16, macOS ARM64. Product/CLI: `db-semantic-mcp`; module: `db_semantic_mcp`; distribution: `lukestack-db-semantic-mcp==0.8.0`. No publication, push or repository rename was performed. Installation evidence uses local source/built artifacts, never the unrelated generic PyPI project.
+Validated on 2026-10-16, macOS ARM64. Product/CLI: `db-semantic-mcp`; module: `db_semantic_mcp`; distribution: `lukestack-db-semantic-mcp==0.8.0`. At this validation stage, no publication, push or repository rename was performed. The user subsequently renamed the repository to `LukeStackLab/db-semantic-mcp`; see the [decision record](decisions/2026-10-15-db-semantic-mcp.md). Installation evidence uses local source/built artifacts, never the unrelated generic PyPI project.
 
 ## Automated checks
 

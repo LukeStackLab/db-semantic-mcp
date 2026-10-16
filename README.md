@@ -8,7 +8,7 @@
 
 ## 安裝 0.8.0
 
-產品、CLI 與 MCP server 名稱為 `db-semantic-mcp`，Python module 為 `db_semantic_mcp`，distribution 為 **`lukestack-db-semantic-mcp`**。本版尚未發布到 PyPI，請從原始碼或自行建置的 wheel 安裝。PyPI 通用名稱已由其他專案使用。GitHub repository URL 維持原名。
+產品、CLI 與 MCP server 名稱為 `db-semantic-mcp`，Python module 為 `db_semantic_mcp`，distribution 為 **`lukestack-db-semantic-mcp`**。本版尚未發布到 PyPI，請從原始碼或自行建置的 wheel 安裝。PyPI 通用名稱已由其他專案使用。GitHub repository 已統一為 `LukeStackLab/db-semantic-mcp`。
 
 先安裝 [uv](https://docs.astral.sh/uv/getting-started/installation/)，再執行：
 

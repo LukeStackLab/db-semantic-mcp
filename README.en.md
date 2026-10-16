@@ -8,7 +8,7 @@ Compatibility targets: SQL Server 2017+, Oracle 19c+, Python 3.11+. The actual l
 
 ## Install 0.8.0 from source or a built wheel
 
-Product/CLI/MCP name: `db-semantic-mcp`. Python module: `db_semantic_mcp`. Distribution: **`lukestack-db-semantic-mcp`**. This release has not been published to PyPI. The generic PyPI name belongs to another project. The GitHub repository keeps its current URL.
+Product/CLI/MCP name: `db-semantic-mcp`. Python module: `db_semantic_mcp`. Distribution: **`lukestack-db-semantic-mcp`**. This release has not been published to PyPI. The generic PyPI name belongs to another project. The GitHub repository is `LukeStackLab/db-semantic-mcp`.
 
 ```bash
 git clone https://github.com/LukeStackLab/db-semantic-mcp.git db-semantic-mcp
