@@ -130,7 +130,7 @@ def test_oracle_wizard_options_and_provider_stays_fixed(tmp_path):
         encrypt=False,
         oracle={"service_name": "db"},
     )
-    answers = iter(["thin", "", "service", "host", "", "db", "n", "reader"])
+    answers = iter(["thin", "", "service", "host", "", "db", "n", "reader", ""])
     prompts = []
 
     def ask(prompt):

@@ -9,5 +9,6 @@
   "encrypt": true,
   "readonly": true,
   "credential": {"storage": "env", "key": "DBMCP_SQL_PASSWORD"},
-  "tool_profile": "all"
+  "tool_profile": "all",
+  "execution_recording_enabled": false
 }

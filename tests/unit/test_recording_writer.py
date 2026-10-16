@@ -304,7 +304,15 @@ def test_byte_budget_is_injectable_and_drops_oversized_event_whole(tmp_path):
             break
         time.sleep(0.01)
     assert accepted
-    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("probe",))
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        with recorder._lock:
+            idle = recorder._queued == 0 and recorder._bytes == 0
+        if idle:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("writer did not drain")
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT sql_text FROM mcp_execution_log WHERE id = 'small'").fetchone() == ("SELECT ok",)
         assert conn.execute("SELECT id FROM mcp_execution_log WHERE id IN ('other', 'huge')").fetchall() == []

@@ -11,5 +11,6 @@
   "oracle": {"service_name": "FREEPDB1", "driver_mode": "thin"},
   "sources": {"remote": {"db_link": "DBMCP.REMOTE.TEST", "readonly": true}},
   "credential": {"storage": "env", "key": "DBMCP_ORACLE_PASSWORD"},
-  "tool_profile": "all"
+  "tool_profile": "all",
+  "execution_recording_enabled": false
 }

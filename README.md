@@ -44,6 +44,8 @@ db-semantic-mcp setup --tool-profile explore
 
 每組連線使用獨立 process、憑證參照、policy 與 cache。以不同名稱建立 `erp_prod`、`oracle_test`、`reporting`，再於對話指定要用的 MCP server。固定 profile 不受 cwd `.env` 或繼承的 `SEMANTIC_MCP_*` 設定影響。
 
+執行紀錄預設關閉。在 `connection.json` 設 `execution_recording_enabled: true`，或讓安裝精靈回答要記錄，然後重啟該 MCP process。紀錄寫進該連線的 SQLite cache，查詢方式見 [執行紀錄驗證](docs/validation-execution-recording.md)。它保存完整 SQL 與參數，不進入 MCP 工具回應。
+
 手動配置範例：
 
 - [SQL Server v2 connection](config/connection.sqlserver.example.json) 與 [policy](config/policy.example.json)。

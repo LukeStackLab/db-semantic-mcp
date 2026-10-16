@@ -42,6 +42,8 @@ Prompts are currently Traditional Chinese. Select the client and database provid
 
 Each connection gets a separate process, credential reference, policy and cache. Use distinct names such as `erp_prod`, `oracle_test` and `reporting`. Ask the agent to use the corresponding MCP server. Profiles ignore inherited `SEMANTIC_MCP_*` values and cwd `.env`.
 
+Execution recording is off by default. Set `execution_recording_enabled` to `true` in `connection.json`, or accept the setup prompt, then restart that MCP process. Rows go into that connection's SQLite cache. Query details are in [execution recording validation](docs/validation-execution-recording.md). The log stores full SQL and parameters and does not add fields to MCP tool responses.
+
 Manual v2 examples:
 
 - [SQL Server connection](config/connection.sqlserver.example.json) with [policy](config/policy.example.json).
