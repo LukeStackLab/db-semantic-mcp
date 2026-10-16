@@ -46,6 +46,7 @@ def test_profiles_isolate_same_database_and_inherited_env(saved, tmp_path, monke
         "CACHE_PATH": "/wrong.db",
         "STRICT_ROWS_AFFECTED_CAP": "false",
         "WINDOWS_AUTH": "true",
+        "EXECUTION_RECORDING_ENABLED": "true",
     }.items():
         monkeypatch.setenv("SEMANTIC_MCP_" + key, value)
     configs = [load_profile(saved(f"erp{n}")) for n in range(5)]
@@ -59,6 +60,23 @@ def test_profiles_isolate_same_database_and_inherited_env(saved, tmp_path, monke
         assert cfg.max_response_bytes == 65536
         assert cfg.strict_rows_affected_cap is False and cfg.connection_name
         assert cfg.windows_auth is False
+        assert cfg.execution_recording_enabled is False
+        assert cfg.tool_profile == "all"
+
+
+def test_profile_recording_flag_defaults_false_and_round_trips(saved):
+    path = saved()
+    raw = json.loads(path.read_text())
+    raw.pop("execution_recording_enabled")
+    path.write_text(json.dumps(raw))
+    missing = load_profile(path)
+    assert missing.execution_recording_enabled is False
+    enabled = load_profile(saved("traced", execution_recording_enabled=True))
+    disabled = load_profile(saved("quiet", execution_recording_enabled=False))
+    assert enabled.execution_recording_enabled is True
+    assert disabled.execution_recording_enabled is False
+    assert enabled.tool_profile == disabled.tool_profile == "all"
+    assert enabled.policy_profile == disabled.policy_profile
 
 
 def test_changed_target_gets_new_cache(saved):

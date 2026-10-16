@@ -186,6 +186,11 @@ def _gather_connection(name, previous, directory, input_fn, password_fn, *, read
             "允許新增與修改資料？",
             default=previous is not None and not previous.readonly,
         )
+    execution_recording_enabled = _confirm(
+        input_fn,
+        "記錄工具執行的 SQL 與參數到本機 cache？",
+        default=bool(previous and previous.execution_recording_enabled),
+    )
     fields = previous.model_dump() if previous else {}
     fields.update(provider_fields)
     fields.update(
@@ -195,6 +200,7 @@ def _gather_connection(name, previous, directory, input_fn, password_fn, *, read
         database=database,
         user=user,
         readonly=readonly,
+        execution_recording_enabled=execution_recording_enabled,
         credential=None,
     )
     return ConnectionProfile.model_validate(fields), password

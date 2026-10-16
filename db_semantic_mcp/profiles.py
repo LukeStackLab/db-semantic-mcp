@@ -36,6 +36,7 @@ class ConnectionProfile(BaseModel):
     max_rows_returned: int = Field(default=1000, ge=1)
     max_rows_affected: int = Field(default=100, ge=1)
     query_timeout: int = Field(default=30, ge=1)
+    execution_recording_enabled: bool = False
     credential: CredentialReference | None = None
 
     @model_validator(mode="before")
@@ -177,6 +178,7 @@ def config_for_profile(
         max_rows_returned=profile.max_rows_returned,
         max_rows_affected=profile.max_rows_affected,
         query_timeout=profile.query_timeout,
+        execution_recording_enabled=profile.execution_recording_enabled,
     )
     return Config.from_fixed(**values)
 

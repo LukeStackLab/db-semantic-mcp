@@ -143,6 +143,8 @@ class Config(BaseSettings):
 
     # ---- Metrics ----
     metrics_enabled: bool = True
+    # Real-time SQLite trace of tool calls. Off until a process restart with this set.
+    execution_recording_enabled: bool = False
 
     # ---- Agent-oriented defaults ----
     direct_execute_enabled: bool = True

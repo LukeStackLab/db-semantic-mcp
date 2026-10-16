@@ -47,7 +47,7 @@ def test_five_independent_profiles_and_password_redaction(environment):
     client.write_text('{"mcpServers":{"existing":{"command":"keep"}},"theme":"dark"}')
     answers = []
     for n in range(5):
-        answers.extend([f"erp{n}", f"sql{n}", "", "ERP", "reader", "n", "y" if n < 4 else "n"])
+        answers.extend([f"erp{n}", f"sql{n}", "", "ERP", "reader", "n", "", "y" if n < 4 else "n"])
     answers.append("")
     status, output = run(environment, answers)
     assert status == 0
@@ -68,15 +68,25 @@ def test_five_independent_profiles_and_password_redaction(environment):
 
 def test_cancel_writes_nothing(environment):
     root, client, passwords = environment
-    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", "n"])
+    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", "n"])
     assert status == 0
     assert not root.exists()
     assert not client.exists()
     assert passwords == []
 
 
+def test_setup_can_enable_execution_recording_and_edit_keeps_it(environment):
+    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "y", "n", ""])
+    assert status == 0
+    path = environment[0] / "erp" / "connection.json"
+    assert load_profile(path).execution_recording_enabled is True
+    assert run(environment, ["erp", "y", "", "", "", "", "", "", "n", ""])[0] == 0
+    assert load_profile(path).execution_recording_enabled is True
+    assert json.loads((environment[0] / "erp" / "policy.json").read_text())["active_profile"] == "readonly"
+
+
 def test_setup_tool_profile_is_saved(environment):
-    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""], tool_profile="explore")
+    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""], tool_profile="explore")
     assert status == 0
     assert load_profile(environment[0] / "erp" / "connection.json").tool_profile == "explore"
 
@@ -100,8 +110,10 @@ def test_connection_retry_keeps_defaults_and_does_not_repeat_permission(environm
             "ERP",
             "reader",
             "n",
+            "",
             "y",
             "good-host",
+            "",
             "",
             "",
             "",
@@ -119,7 +131,7 @@ def test_failed_handshake_does_not_register_profile(environment, monkeypatch):
         raise SetupError("MCP 握手失敗")
 
     monkeypatch.setattr(wizard, "check_mcp", fail)
-    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])
+    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""])
     assert status == 1
     assert not environment[1].exists()
     assert not (environment[0] / "erp" / "connection.json").exists()
@@ -127,7 +139,7 @@ def test_failed_handshake_does_not_register_profile(environment, monkeypatch):
 
 
 def test_failed_update_restores_existing_profile(environment, monkeypatch):
-    answers = ["erp", "sql", "", "ERP", "reader", "n", "n", ""]
+    answers = ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""]
     assert run(environment, answers)[0] == 0
     path = environment[0] / "erp" / "connection.json"
     original = path.read_bytes()
@@ -137,7 +149,7 @@ def test_failed_update_restores_existing_profile(environment, monkeypatch):
         raise SetupError("MCP 握手失敗")
 
     monkeypatch.setattr(wizard, "check_mcp", fail)
-    status, _ = run(environment, ["erp", "y", "changed", "", "", "", "y", "n", ""])
+    status, _ = run(environment, ["erp", "y", "changed", "", "", "", "y", "", "n", ""])
     assert status == 1
     assert path.read_bytes() == original
     assert environment[1].read_bytes() == client_original
@@ -152,7 +164,7 @@ def test_concurrent_client_change_rolls_back_profiles(environment, monkeypatch):
 
     monkeypatch.setattr(wizard, "check_mcp", handshake)
     with pytest.raises(SetupError, match="其他程序"):
-        run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])
+        run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""])
     assert json.loads(client.read_text()) == {"external": "change"}
     assert not (environment[0] / "erp" / "connection.json").exists()
 
@@ -178,7 +190,7 @@ def test_keyring_failure_does_not_silently_write_plaintext(environment, monkeypa
         raise CredentialError("不可用")
 
     monkeypatch.setattr(wizard, "store_password", fail)
-    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", "", "n"])
+    status, _ = run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", "", "n"])
     assert status == 1
     assert not environment[1].exists()
     assert not (environment[0] / "erp" / "credentials.json").exists()
@@ -203,6 +215,7 @@ def test_os_error_rolls_back_all_unregistered_profiles(environment, monkeypatch)
                 "ERP",
                 "reader",
                 "n",
+                "",
                 "y",
                 "second",
                 "sql",
@@ -210,6 +223,7 @@ def test_os_error_rolls_back_all_unregistered_profiles(environment, monkeypatch)
                 "ERP",
                 "reader",
                 "n",
+                "",
                 "n",
                 "",
             ],
@@ -220,13 +234,13 @@ def test_os_error_rolls_back_all_unregistered_profiles(environment, monkeypatch)
 
 
 def test_update_preserves_custom_policy_scope_and_tighter_caps(environment):
-    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])[0] == 0
+    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""])[0] == 0
     policy_path = environment[0] / "erp" / "policy.json"
     policy = json.loads(policy_path.read_text())
     policy["profiles"]["readonly"]["constraints"]["max_rows_returned"] = 10
     policy["profiles"]["readonly"]["scope"]["denied_tables"] = ["Payroll"]
     policy_path.write_text(json.dumps(policy))
-    assert run(environment, ["erp", "y", "", "", "", "", "n", "n", ""])[0] == 0
+    assert run(environment, ["erp", "y", "", "", "", "", "n", "", "n", ""])[0] == 0
     updated = json.loads(policy_path.read_text())["profiles"]["readonly"]
     assert updated["constraints"]["max_rows_returned"] == 10
     assert updated["scope"]["denied_tables"] == ["Payroll"]
@@ -249,6 +263,7 @@ def test_post_handshake_edit_is_not_registered_and_other_files_are_restored(envi
                 "ERP",
                 "reader",
                 "n",
+                "",
                 "y",
                 "second",
                 "sql",
@@ -256,6 +271,7 @@ def test_post_handshake_edit_is_not_registered_and_other_files_are_restored(envi
                 "ERP",
                 "reader",
                 "n",
+                "",
                 "n",
                 "",
             ],
@@ -267,20 +283,20 @@ def test_post_handshake_edit_is_not_registered_and_other_files_are_restored(envi
 
 
 def test_update_does_not_reenable_disabled_operation(environment):
-    assert run(environment, ["erp", "sql", "", "ERP", "reader", "y", "n", ""])[0] == 0
+    assert run(environment, ["erp", "sql", "", "ERP", "reader", "y", "", "n", ""])[0] == 0
     policy_path = environment[0] / "erp" / "policy.json"
     policy = json.loads(policy_path.read_text())
     policy["profiles"]["read_write_safe"]["operations"]["insert"] = False
     policy_path.write_text(json.dumps(policy))
-    assert run(environment, ["erp", "y", "", "", "", "", "", "n", ""])[0] == 0
+    assert run(environment, ["erp", "y", "", "", "", "", "", "", "n", ""])[0] == 0
     updated = json.loads(policy_path.read_text())["profiles"]["read_write_safe"]
     assert updated["operations"]["insert"] is False
     assert updated["operations"]["update"] is True
 
 
 def test_explicit_permission_change_enables_only_limited_writes(environment):
-    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])[0] == 0
-    assert run(environment, ["erp", "y", "", "", "", "", "y", "n", ""])[0] == 0
+    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""])[0] == 0
+    assert run(environment, ["erp", "y", "", "", "", "", "y", "", "n", ""])[0] == 0
     cfg = load_profile(environment[0] / "erp" / "connection.json")
     from db_semantic_mcp.services.policy_service import PolicyService
 
@@ -301,7 +317,7 @@ def test_stale_draft_does_not_delete_another_installers_identical_policy(environ
         directory,
         {directory / name: None for name in ("connection.json", "policy.json", "credentials.json")},
     )
-    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])[0] == 0
+    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""])[0] == 0
     existing = {p: p.read_bytes() for p in directory.glob("*.json")}
     with pytest.raises(SetupError, match="其他程序"):
         wizard._apply(stale, lambda prompt: "n", lambda message: None)
@@ -310,7 +326,7 @@ def test_stale_draft_does_not_delete_another_installers_identical_policy(environ
 
 
 def test_interrupt_after_replace_restores_the_owned_file(environment, monkeypatch):
-    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", ""])[0] == 0
+    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", ""])[0] == 0
     directory = environment[0] / "erp"
     before = {p: p.read_bytes() for p in directory.glob("*.json")}
     client_before = environment[1].read_bytes()
@@ -327,7 +343,7 @@ def test_interrupt_after_replace_restores_the_owned_file(environment, monkeypatc
             raise KeyboardInterrupt
 
     monkeypatch.setattr(files.os, "replace", interrupt_once)
-    assert run(environment, ["erp", "y", "", "", "", "", "y", "n", ""])[0] == 130
+    assert run(environment, ["erp", "y", "", "", "", "", "y", "", "n", ""])[0] == 130
     assert environment[1].read_bytes() == client_before
     for path, data in before.items():
         assert path.read_bytes() == data
@@ -341,7 +357,7 @@ def test_finalize_preserves_newer_configuration_and_identical_credentials(enviro
         raise CredentialError("keyring unavailable")
 
     monkeypatch.setattr(wizard, "store_password", unavailable)
-    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "n", "", "y"])[0] == 0
+    assert run(environment, ["erp", "sql", "", "ERP", "reader", "n", "", "n", "", "y"])[0] == 0
     directory = environment[0] / "erp"
     old_credential = json.loads((directory / "connection.json").read_text())["credential"]
     secret_bytes = (directory / "credentials.json").read_bytes()
@@ -359,6 +375,6 @@ def test_finalize_preserves_newer_configuration_and_identical_credentials(enviro
         return backup
 
     monkeypatch.setattr(wizard, "register_servers", register_then_concurrent_update)
-    assert run(environment, ["erp", "y", "", "", "", "", "n", "n", ""])[0] == 0
+    assert run(environment, ["erp", "y", "", "", "", "", "n", "", "n", ""])[0] == 0
     assert (directory / "credentials.json").read_bytes() == secret_bytes
     assert load_profile(directory / "connection.json").password == "NEVER_ECHO_PASSWORD"

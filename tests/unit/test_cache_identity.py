@@ -53,6 +53,14 @@ async def test_local_context_identity_changes_with_authority(tmp_path, change):
     assert same.cfg.cache_path == a.cfg.cache_path
 
 
+def test_execution_recording_flag_does_not_change_cache_identity(tmp_path):
+    off = Context(config(tmp_path, execution_recording_enabled=False))
+    on = Context(config(tmp_path, execution_recording_enabled=True))
+    assert off.cfg.cache_path == on.cfg.cache_path
+    assert off.cfg.tool_profile == on.cfg.tool_profile
+    assert off.policy.current_policy().model_dump() == on.policy.current_policy().model_dump()
+
+
 @pytest.mark.asyncio
 async def test_policy_reload_new_namespace_and_inflight_snapshot(tmp_path, monkeypatch):
     from db_semantic_mcp.server import source_context as sources
