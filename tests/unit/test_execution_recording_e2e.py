@@ -4,7 +4,6 @@ import asyncio
 import json
 import sqlite3
 import threading
-import time
 
 import aiosqlite
 import pytest
@@ -44,6 +43,21 @@ async def _noop_revalidate(*_args, **_kwargs):
     return None
 
 
+def _settle_writer(timeout=2.0):
+    import time
+
+    from db_semantic_mcp.infrastructure.recording.writer import get_recorder
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        recorder = get_recorder()
+        with recorder._lock:
+            if recorder._queued == 0 and recorder._bytes == 0:
+                return
+        time.sleep(0.005)
+    raise AssertionError("writer did not drain")
+
+
 def _read(path, record_type):
     with sqlite3.connect(path) as db:
         return db.execute(
@@ -63,6 +77,7 @@ async def test_running_row_is_visible_before_the_tool_finishes(tmp_path, monkeyp
     _install(monkeypatch, cfg)
     monkeypatch.setattr("db_semantic_mcp.server.app.revalidation.maybe_revalidate", _noop_revalidate)
     release = threading.Event()
+    entered = threading.Event()
 
     class Cursor:
         def execute(self, sql, parameters=None):
@@ -75,27 +90,28 @@ async def test_running_row_is_visible_before_the_tool_finishes(tmp_path, monkeyp
     tool, _handler = _TOOL_REGISTRY["get_tables"]
 
     async def handler(_args):
+        entered.set()
+        await asyncio.to_thread(release.wait, 2)
         async with recording_connect(data) as db:
             await db.execute("SELECT id FROM t")
         instrument_db_connection(Conn()).cursor().execute("SELECT id FROM orders", {"id": 7})
-        await asyncio.to_thread(release.wait, 2)
         return [{"schema_name": "dbo", "table_name": "orders"}]
 
     _TOOL_REGISTRY["get_tables"] = (tool, handler)
     task = asyncio.create_task(_dispatch_tool("get_tables", {}))
-    seen = []
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and not task.done():
-        seen = _read(sink, "tool")
-        if seen and seen[0][0] == "running":
+    for _ in range(200):
+        if entered.is_set():
             break
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.01)
+    assert entered.is_set()
+    _settle_writer()
+    seen = _read(sink, "tool")
     assert seen and seen[0][0] == "running"
     release.set()
     result = await task
     assert result.isError is False
     assert "execution" not in result.structuredContent
-    await asyncio.sleep(0.15)
+    _settle_writer()
     tools = _read(sink, "tool")
     sqls = _read(sink, "sql")
     assert tools[0][0] == "success" and tools[0][1] == "找到 1 張表"

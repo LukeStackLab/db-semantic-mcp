@@ -58,15 +58,24 @@ def _event(path: str, row_id: str = "row-1", **overrides) -> RecordingEvent:
     return RecordingEvent(**values)
 
 
-def _wait(path, sql, params=(), timeout=2.0):
+def _wait(path, sql, params=(), timeout=2.0, recorder=None):
+    """Read after this recorder is idle. A second connection during commit drops the event."""
+    if recorder is None:
+        raise AssertionError("pass the recorder so the read does not overlap its commit")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with sqlite3.connect(path) as conn:
-            row = conn.execute(sql, params).fetchone()
-        if row is not None:
-            return row
-        time.sleep(0.01)
-    raise AssertionError(f"timed out waiting for {sql}")
+        with recorder._lock:
+            idle = recorder._queued == 0 and recorder._bytes == 0
+        if idle:
+            break
+        time.sleep(0.005)
+    else:
+        raise AssertionError("writer did not drain")
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(sql, params).fetchone()
+    if row is None:
+        raise AssertionError(f"timed out waiting for {sql}")
+    return row
 
 
 @pytest.fixture(autouse=True)
@@ -114,17 +123,19 @@ def test_terminal_state_does_not_regress_and_end_only_upserts(tmp_path):
         path,
         "SELECT status, summary, sql_text, parameters_json FROM mcp_execution_log WHERE id = ?",
         ("row-1",),
+        recorder=recorder,
     )
     assert row == ("unknown", "交易結果未知", "SELECT secret_sql", '{"t":"str","v":"hunter2"}')
     late_start = _event(path, phase="start", status="running", summary="running")
     assert recorder.try_emit(late_start) is True
     probe = _event(path, "probe", phase="start", summary="probe")
     assert recorder.try_emit(probe) is True
-    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("probe",))
+    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("probe",), recorder=recorder)
     again = _wait(
         path,
         "SELECT status, summary, sql_text FROM mcp_execution_log WHERE id = ?",
         ("row-1",),
+        recorder=recorder,
     )
     assert again == ("unknown", "交易結果未知", "SELECT secret_sql")
     recorder.close()
@@ -147,7 +158,7 @@ def test_start_only_stays_running_and_expired_end_does_not_resurrect(tmp_path):
     clock = {"now": datetime(2026, 10, 16, 12, tzinfo=TAIWAN)}
     recorder = Recorder(clock=lambda: clock["now"])
     assert recorder.try_emit(_event(path, "live")) is True
-    _wait(path, "SELECT status FROM mcp_execution_log WHERE id = ?", ("live",))
+    _wait(path, "SELECT status FROM mcp_execution_log WHERE id = ?", ("live",), recorder=recorder)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT status FROM mcp_execution_log WHERE id = ?", ("live",)).fetchone() == ("running",)
         assert conn.execute("SELECT id FROM mcp_execution_log WHERE id = 'old'").fetchone() is None
@@ -168,7 +179,7 @@ def test_start_only_stays_running_and_expired_end_does_not_resurrect(tmp_path):
     )
     assert recorder.try_emit(expired_end) is True
     assert recorder.try_emit(_event(path, "after")) is True
-    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("after",))
+    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("after",), recorder=recorder)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT id FROM mcp_execution_log WHERE id = 'old'").fetchone() is None
     recorder.close()
@@ -263,7 +274,13 @@ def test_queue_bounds_drop_whole_events_without_truncation(tmp_path):
                 break
             time.sleep(0.01)
         assert accepted
-        _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("after-release",), timeout=5)
+        _wait(
+            path,
+            "SELECT id FROM mcp_execution_log WHERE id = ?",
+            ("after-release",),
+            timeout=5,
+            recorder=recorder,
+        )
         with sqlite3.connect(path) as conn:
             assert conn.execute("SELECT id FROM mcp_execution_log WHERE id = 'overflow'").fetchone() is None
             stored = conn.execute("SELECT sql_text FROM mcp_execution_log WHERE sql_text IS NOT NULL").fetchall()
@@ -304,15 +321,7 @@ def test_byte_budget_is_injectable_and_drops_oversized_event_whole(tmp_path):
             break
         time.sleep(0.01)
     assert accepted
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        with recorder._lock:
-            idle = recorder._queued == 0 and recorder._bytes == 0
-        if idle:
-            break
-        time.sleep(0.01)
-    else:
-        raise AssertionError("writer did not drain")
+    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("probe",), recorder=recorder)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT sql_text FROM mcp_execution_log WHERE id = 'small'").fetchone() == ("SELECT ok",)
         assert conn.execute("SELECT id FROM mcp_execution_log WHERE id IN ('other', 'huge')").fetchall() == []
@@ -393,7 +402,7 @@ def test_writer_failures_do_not_escape_and_warnings_are_bounded(tmp_path, capsys
         holder.close()
     # Re-read through the same file after release: locked events were not retried.
     assert recorder.try_emit(_event(path, "later")) is True
-    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("later",))
+    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("later",), recorder=recorder)
     with sqlite3.connect(path) as conn:
         locked = conn.execute("SELECT id FROM mcp_execution_log WHERE id LIKE 'locked-%'").fetchall()
     assert locked == []
@@ -475,7 +484,7 @@ def test_writer_connects_with_zero_sqlite_timeout(tmp_path, monkeypatch):
     recorder = Recorder(clock=_fixed_clock)
     try:
         assert recorder.try_emit(_event(path, "row")) is True
-        _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("row",))
+        _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("row",), recorder=recorder)
         assert timeouts == [0]
     finally:
         recorder.close()

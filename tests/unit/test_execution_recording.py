@@ -69,20 +69,30 @@ def _cfg(path, **extra):
     return cfg
 
 
-def _rows(path, record_type, expected):
-    deadline = time.monotonic() + 2
-    rows = []
+def _settle_writer(timeout=2.0):
+    from db_semantic_mcp.infrastructure.recording.writer import get_recorder
+
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with sqlite3.connect(path) as db:
-            rows = db.execute(
-                "SELECT tool_name, step_name, action_type, status, summary, call_id, source_type, sql_text "
-                "FROM mcp_execution_log WHERE record_type = ? ORDER BY sequence_no",
-                (record_type,),
-            ).fetchall()
-        if len(rows) >= expected and all(row[3] != "running" for row in rows):
-            return rows
-        time.sleep(0.02)
-    raise AssertionError(rows)
+        recorder = get_recorder()
+        with recorder._lock:
+            if recorder._queued == 0 and recorder._bytes == 0:
+                return
+        time.sleep(0.005)
+    raise AssertionError("writer did not drain")
+
+
+def _rows(path, record_type, expected):
+    _settle_writer()
+    with sqlite3.connect(path) as db:
+        rows = db.execute(
+            "SELECT tool_name, step_name, action_type, status, summary, call_id, source_type, sql_text "
+            "FROM mcp_execution_log WHERE record_type = ? ORDER BY sequence_no",
+            (record_type,),
+        ).fetchall()
+    if len(rows) < expected or any(row[3] == "running" for row in rows):
+        raise AssertionError(rows)
+    return rows
 
 
 def _stub(name):
@@ -235,7 +245,7 @@ async def test_cancelled_caller_leaves_the_worker_sql_result(tmp_path):
     sink = _sink(tmp_path)
     cfg = _cfg(sink)
     object.__setattr__(cfg, "db_worker_limit", 1)
-    entered, release = threading.Event(), threading.Event()
+    entered, release, done = threading.Event(), threading.Event(), threading.Event()
 
     def work():
         class Cursor:
@@ -254,7 +264,10 @@ async def test_cancelled_caller_leaves_the_worker_sql_result(tmp_path):
             def close(self):
                 return None
 
-        instrument_db_connection(Conn()).cursor().execute("UPDATE orders SET qty = %s", (1,))
+        try:
+            instrument_db_connection(Conn()).cursor().execute("UPDATE orders SET qty = %s", (1,))
+        finally:
+            done.set()
 
     async def body():
         async with record_tool(cfg, "plan_or_execute_query") as span:
@@ -271,6 +284,7 @@ async def test_cancelled_caller_leaves_the_worker_sql_result(tmp_path):
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert done.wait(2)
     tool = _rows(sink, "tool", 1)[0]
     sql = _rows(sink, "sql", 1)[0]
     assert tool[3:5] == ("cancelled", "已取消")

@@ -32,15 +32,26 @@ def _cfg(path, enabled=True):
     return SimpleNamespace(execution_recording_enabled=enabled, cache_path=str(path))
 
 
-def _wait(path, sql, params=(), timeout=2.0):
+def _settle_writer(timeout=2.0):
+    from db_semantic_mcp.infrastructure.recording.writer import get_recorder
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with sqlite3.connect(path) as conn:
-            row = conn.execute(sql, params).fetchone()
-        if row is not None:
-            return row
-        time.sleep(0.01)
-    raise AssertionError(sql)
+        recorder = get_recorder()
+        with recorder._lock:
+            if recorder._queued == 0 and recorder._bytes == 0:
+                return
+        time.sleep(0.005)
+    raise AssertionError("writer did not drain")
+
+
+def _wait(path, sql, params=(), timeout=2.0):
+    _settle_writer(timeout)
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(sql, params).fetchone()
+    if row is None:
+        raise AssertionError(sql)
+    return row
 
 
 async def test_disabled_does_not_start_writer_or_serialize(tmp_path, monkeypatch):
@@ -137,17 +148,12 @@ async def test_sql_failure_and_unrepresentable_parameters_keep_the_caller_result
         span.finish("failed", "失敗：policy_denied" + ("x" * 300))
     assert caller == "kept"
     assert stream.consumed is False
-    deadline = time.monotonic() + 2
-    rows = []
-    while time.monotonic() < deadline:
-        with sqlite3.connect(path) as conn:
-            rows = conn.execute(
-                "SELECT record_type, source_type, status, summary, sql_text, parameters_json, action_type "
-                "FROM mcp_execution_log ORDER BY sequence_no"
-            ).fetchall()
-        if len(rows) >= 3 and rows[0][2] == "failed" and all(row[2] != "running" for row in rows):
-            break
-        time.sleep(0.01)
+    _settle_writer()
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT record_type, source_type, status, summary, sql_text, parameters_json, action_type "
+            "FROM mcp_execution_log ORDER BY sequence_no"
+        ).fetchall()
     assert rows[0][0] == "tool"
     assert rows[0][2] == "failed"
     assert len(rows[0][3]) == 200
@@ -219,16 +225,10 @@ async def test_sequence_numbers_are_unique_across_copied_contexts(tmp_path):
             thread.join()
         assert errors == []
         span.finish("success", "ok")
-    deadline = time.monotonic() + 2
-    ready = False
-    while time.monotonic() < deadline:
-        with sqlite3.connect(path) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM mcp_execution_log WHERE sequence_no = 9").fetchone()[0]
-        if count == 1:
-            ready = True
-            break
-        time.sleep(0.01)
-    assert ready
+    _settle_writer()
+    with sqlite3.connect(path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM mcp_execution_log WHERE sequence_no = 9").fetchone()[0]
+    assert count == 1
     with sqlite3.connect(path) as conn:
         sequences = [row[0] for row in conn.execute("SELECT sequence_no FROM mcp_execution_log ORDER BY sequence_no")]
     assert sequences == list(range(1, 10))

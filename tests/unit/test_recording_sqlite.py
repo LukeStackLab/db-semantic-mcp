@@ -35,19 +35,29 @@ def _sink(tmp_path):
     return path
 
 
-def _sql_rows(path, expected):
-    deadline = time.monotonic() + 2
-    rows = []
+def _settle_writer(timeout=2.0):
+    from db_semantic_mcp.infrastructure.recording.writer import get_recorder
+
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with sqlite3.connect(path) as db:
-            rows = db.execute(
-                "SELECT source_type, status, sql_text, call_id FROM mcp_execution_log "
-                "WHERE record_type = 'sql' ORDER BY sequence_no"
-            ).fetchall()
-        if len(rows) >= expected and all(row[1] != "running" for row in rows):
-            return rows
-        time.sleep(0.02)
-    raise AssertionError(rows)
+        recorder = get_recorder()
+        with recorder._lock:
+            if recorder._queued == 0 and recorder._bytes == 0:
+                return
+        time.sleep(0.005)
+    raise AssertionError("writer did not drain")
+
+
+def _sql_rows(path, expected):
+    _settle_writer()
+    with sqlite3.connect(path) as db:
+        rows = db.execute(
+            "SELECT source_type, status, sql_text, call_id FROM mcp_execution_log "
+            "WHERE record_type = 'sql' ORDER BY sequence_no"
+        ).fetchall()
+    if len(rows) < expected or any(row[1] == "running" for row in rows):
+        raise AssertionError(rows)
+    return rows
 
 
 def test_without_context_recording_connect_returns_the_native_factory(monkeypatch):
