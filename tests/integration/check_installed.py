@@ -17,14 +17,25 @@ from pathlib import Path
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from db_semantic_mcp.profiles import ConnectionProfile, load_profile, policy_bytes, profile_bytes
+from db_semantic_mcp.profiles import ConnectionProfile, load_profile, policy_bytes, profile_bytes, read_profile
 from db_semantic_mcp.setup.checks import check_connection
 from db_semantic_mcp.setup.clients import server_entry
 
 
+def child_environment(path):
+    """Keep explicit credential references while discarding runtime overrides."""
+    profile = read_profile(path)
+    references = set()
+    if profile.credential and profile.credential.storage == "env":
+        references.add(profile.credential.key)
+    if profile.oracle and profile.oracle.wallet_password_env:
+        references.add(profile.oracle.wallet_password_env)
+    return {k: v for k, v in os.environ.items() if not k.startswith("SEMANTIC_MCP_") or k in references}
+
+
 async def mcp_query(path, sql):
     entry = server_entry(path)
-    entry["env"] = {k: v for k, v in os.environ.items() if not k.startswith("SEMANTIC_MCP_")}
+    entry["env"] = child_environment(path)
     with tempfile.TemporaryFile(mode="w+") as errors:
         async with asyncio.timeout(180):
             async with stdio_client(StdioServerParameters(**entry), errlog=errors) as (reader, writer):

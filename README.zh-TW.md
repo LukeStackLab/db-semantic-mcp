@@ -140,4 +140,8 @@ uv build
 
 沒有明確 disposable opt-in 時，live tests 會 skip。詳見 [可重現 fixture 與指令](docs/testing-oracle.md)及[實測紀錄](docs/validation-0.8.0.md)。Mock 測試不能替代實機認證。
 
+## 本機 Docker 示範
+
+用兩個隔離容器建立 SQL Server／Oracle 與模擬資料，並執行實際 MCP 查詢。第二個 Oracle 僅供 DB link 選配；Thin／Thick 共用同一 Oracle。啟動、私有 profile、sample SQL 與資料清除指令見 [本機 Docker 示範環境](docs/local-docker.md)。
+
 [問題回報](https://github.com/LukeStackLab/sqlserver-semantic-mcp/issues) · [MIT License](LICENSE)

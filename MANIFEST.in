@@ -5,3 +5,8 @@ recursive-include tests *.py *.sql
 prune .superpowers
 prune build
 prune dist
+
+include docs/local-docker.md
+recursive-include docker *.yaml *.sql
+recursive-include scripts *.py
+prune .db-semantic-mcp-demo

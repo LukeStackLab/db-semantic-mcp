@@ -1,0 +1,71 @@
+# Start through scripts/demo.py: it verifies ownership before Compose mutations.
+x-labels: &labels
+  io.db-semantic-mcp.demo-owner: ${DEMO_OWNER_TOKEN:?Use scripts/demo.py}
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    container_name: db-semantic-demo-sql
+    labels: *labels
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${SQL_ADMIN_PASSWORD:?Use scripts/demo.py}
+      MSSQL_MEMORY_LIMIT_MB: '1536'
+    mem_limit: 2g
+    ports: ['127.0.0.1:21433:1433']
+    volumes: ['sql-data:/var/opt/mssql']
+    networks: [demo]
+    healthcheck:
+      test: ['CMD-SHELL', 'SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -Q "SELECT 1" -b >/dev/null 2>&1']
+      interval: 10s
+      timeout: 5s
+      retries: 45
+      start_period: 30s
+  oracle:
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: db-semantic-demo-oracle
+    labels: *labels
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_ADMIN_PASSWORD:?Use scripts/demo.py}
+    mem_limit: 3g
+    ports: ['127.0.0.1:21521:1521']
+    volumes: ['oracle-data:/opt/oracle/oradata']
+    networks: [demo]
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh']
+      interval: 10s
+      timeout: 5s
+      retries: 45
+      start_period: 30s
+  remote:
+    profiles: [remote]
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: db-semantic-demo-remote
+    labels: *labels
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_ADMIN_PASSWORD:?Use scripts/demo.py}
+    mem_limit: 3g
+    ports: ['127.0.0.1:21522:1521']
+    volumes: ['remote-data:/opt/oracle/oradata']
+    networks: [demo]
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh']
+      interval: 10s
+      timeout: 5s
+      retries: 45
+      start_period: 30s
+volumes:
+  sql-data:
+    name: db-semantic-demo-sql-data
+    labels: *labels
+  oracle-data:
+    name: db-semantic-demo-oracle-data
+    labels: *labels
+  remote-data:
+    name: db-semantic-demo-remote-data
+    labels: *labels
+networks:
+  demo:
+    name: db-semantic-demo-network
+    labels: *labels

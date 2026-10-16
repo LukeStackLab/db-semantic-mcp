@@ -77,7 +77,9 @@ async def test_actual_mcp_tools_and_sources(oracle_config):
     from db_semantic_mcp.setup.clients import server_entry
 
     entry = server_entry(Path(os.environ["SEMANTIC_MCP_TEST_ORACLE_PROFILE"]))
-    entry["env"] = {k: v for k, v in os.environ.items() if not k.startswith("SEMANTIC_MCP_")}
+    from tests.integration.check_installed import child_environment
+
+    entry["env"] = child_environment(Path(os.environ["SEMANTIC_MCP_TEST_ORACLE_PROFILE"]))
     async with asyncio.timeout(180):
         async with stdio_client(StdioServerParameters(**entry)) as (reader, writer):
             async with ClientSession(reader, writer) as session:

@@ -12,3 +12,6 @@ build/
 .claude/
 source/
 *.stackdump
+
+# Private reusable Docker demo state and credentials
+.db-semantic-mcp-demo/

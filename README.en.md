@@ -140,4 +140,8 @@ uv build
 
 Live tests skip without explicit disposable opt-in. See [portable fixtures and commands](docs/testing-oracle.md) and [actual release evidence](docs/validation-0.8.0.md). Mock tests do not certify a database version.
 
+## Local Docker demo
+
+Create isolated SQL Server and Oracle databases with sample data and run actual MCP checks. An optional second Oracle exercises DB links; Thin and Thick share the same Oracle server. See the [local Docker guide](docs/local-docker.md) for commands, private profiles, sample SQL, and explicit data cleanup.
+
 [Issues](https://github.com/LukeStackLab/sqlserver-semantic-mcp/issues) · [MIT License](LICENSE)
