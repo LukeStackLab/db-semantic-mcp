@@ -30,6 +30,9 @@ logger = logging.getLogger("db_semantic_mcp")
 
 
 async def _startup() -> asyncio.Task | None:
+    from .infrastructure.recording.context import detach_recording
+
+    detach_recording()
     cfg = get_config()
     logger.info(
         "Starting db-semantic-mcp against %s/%s",
@@ -76,6 +79,9 @@ async def _run() -> None:
         async with stdio_server() as (r, w):
             await app.run(r, w, app.create_initialization_options())
     finally:
+        from .infrastructure.recording.writer import stop_recording
+
+        stop_recording()
         if bg_task is not None:
             bg_task.cancel()
             try:

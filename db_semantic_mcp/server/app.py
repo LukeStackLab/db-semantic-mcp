@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -230,24 +231,27 @@ async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
         logger.error("Tool %s failed (%s)", name, error_category)
         text = json.dumps(shaped, ensure_ascii=False, separators=(",", ":"))
     if cfg.metrics_enabled:
+        from ..infrastructure.recording.context import suppress_recording
+
         try:
             extras = _infer_workflow_metrics(name, shaped)
             data = shaped.get("data") if isinstance(shaped.get("data"), dict) else shaped
             extras.pop("bundle_key", None)
             cache = shaped.get("cache", {})
-            await metrics_service.record_metric(
-                cfg.cache_path,
-                name,
-                response_bytes=len(text.encode("utf-8")),
-                array_length=array_length,
-                fields_returned=len(shaped),
-                elapsed_ms=(perf_counter() - started) * 1000,
-                fetched_rows=data.get("fetched_row_count"),
-                cache_hit=cache.get("hit"),
-                error_category=error_category,
-                **(take_worker_timings() or {}),
-                **extras,
-            )
+            with suppress_recording():
+                await metrics_service.record_metric(
+                    cfg.cache_path,
+                    name,
+                    response_bytes=len(text.encode("utf-8")),
+                    array_length=array_length,
+                    fields_returned=len(shaped),
+                    elapsed_ms=(perf_counter() - started) * 1000,
+                    fetched_rows=data.get("fetched_row_count"),
+                    cache_hit=cache.get("hit"),
+                    error_category=error_category,
+                    **(take_worker_timings() or {}),
+                    **extras,
+                )
         except Exception:  # noqa: BLE001 (metric recording is best-effort)
             logger.warning("Metric recording failed for tool %s", name)
     return CallToolResult(
@@ -256,6 +260,21 @@ async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
 
 
 async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
+    from ..infrastructure.recording.context import record_tool, tool_outcome
+
+    cfg = get_config()
+    async with record_tool(cfg, name) as span:
+        try:
+            result = await _dispatch_sourced_tool(name, arguments)
+        except asyncio.CancelledError:
+            raise
+        else:
+            if not span.finished:
+                span.finish(*tool_outcome(name, result))
+            return result
+
+
+async def _dispatch_sourced_tool(name: str, arguments: dict) -> CallToolResult:
     from .source_context import EXPLORATION_TOOLS, bind_source
 
     arguments = arguments or {}

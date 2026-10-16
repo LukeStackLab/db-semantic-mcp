@@ -46,6 +46,9 @@ async def background_fill_loop(
     stop_event: asyncio.Event | None = None,
 ) -> None:
     cfg = cfg or get_config()
+    from .recording.context import detach_recording
+
+    detach_recording()
     stop_event = stop_event or asyncio.Event()
     interval = cfg.background_interval_ms / 1000.0
 

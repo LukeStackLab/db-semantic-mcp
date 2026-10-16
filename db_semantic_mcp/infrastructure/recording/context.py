@@ -34,6 +34,11 @@ def recording_active() -> bool:
     return _call.get() is not None and not _suppress.get()
 
 
+def detach_recording() -> None:
+    """Drop an inherited tool call. Independent tasks must not extend that call."""
+    _call.set(None)
+
+
 def _action_for(tool_name: str) -> str | None:
     if tool_name in EXPLORATION_TOOLS:
         return "探索"
@@ -46,8 +51,71 @@ def _clip(summary: str) -> str:
     return (summary or "")[:SUMMARY_LIMIT]
 
 
+def _mapping(result: object) -> tuple[bool, object]:
+    is_error = bool(getattr(result, "isError", False))
+    payload = getattr(result, "structuredContent", result)
+    return is_error, payload
+
+
+def _category(payload: object) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("allowed") is False:
+        return "policy_denied"
+    nodes = [payload]
+    for key in ("data", "validation"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            nodes.append(nested)
+    for node in nodes:
+        if node.get("failure_category"):
+            return str(node["failure_category"])
+        if node.get("transaction_state") == "unknown":
+            return "write_outcome_unknown"
+    return None
+
+
+def tool_outcome(tool_name: str, result: object) -> tuple[str, str]:
+    """Read an existing tool result. This does not query or mutate it."""
+    is_error, payload = _mapping(result)
+    category = _category(payload)
+    if category == "write_outcome_unknown":
+        return "unknown", _clip("交易結果未知")
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if category == "policy_denied" or (isinstance(error, str) and "policy" in error.lower()):
+        return "failed", _clip("失敗：policy_denied")
+    if isinstance(error, str) and error.startswith("Unknown tool"):
+        return "failed", _clip("失敗：unknown_tool")
+    if isinstance(error, str) and ("source" in error.lower() or "Source" in error):
+        return "failed", _clip("失敗：source_rejected")
+    if is_error or category or error:
+        return "failed", _clip(f"失敗：{category or 'error'}")
+    data = payload.get("data", payload) if isinstance(payload, dict) else payload
+    if tool_name == "get_tables":
+        rows = data if isinstance(data, list) else None
+        if rows is None and isinstance(payload, dict) and isinstance(payload.get("tables"), list):
+            rows = payload["tables"]
+        if isinstance(rows, list):
+            return "success", _clip(f"找到 {len(rows)} 張表")
+    count = None
+    if isinstance(data, dict):
+        count = data.get("fetched_row_count")
+        if count is None and isinstance(data.get("rows"), list):
+            count = len(data["rows"])
+    elif isinstance(data, list):
+        count = len(data)
+    if isinstance(count, int):
+        return "success", _clip(f"成功，回傳 {count} 筆")
+    return "success", _clip("完成")
+
+
+def summarize_tool(tool_name: str, result: object) -> str:
+    return tool_outcome(tool_name, result)[1]
+
+
 class _NoopSpan:
     call_id = None
+    finished = True
 
     def finish(self, status: str, summary: str) -> None:
         return None

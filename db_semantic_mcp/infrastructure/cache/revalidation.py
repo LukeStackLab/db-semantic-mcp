@@ -176,8 +176,15 @@ def _track_task(state: _ProbeState, task: asyncio.Task, *, manual: bool = False)
     return task
 
 
-def _start_probe(cfg: Config, state: _ProbeState) -> asyncio.Task:
-    return _track_task(state, asyncio.create_task(_run_probe(cfg, state)))
+def _start_probe(cfg: Config, state: _ProbeState, *, detach: bool = False) -> asyncio.Task:
+    async def _go():
+        if detach:
+            from ..recording.context import detach_recording
+
+            detach_recording()
+        return await _run_probe(cfg, state)
+
+    return _track_task(state, asyncio.create_task(_go()))
 
 
 async def _run_manual_refresh(
@@ -236,6 +243,6 @@ async def maybe_revalidate(cfg: Config) -> None:
         if not cfg.cache_enabled or not is_due(cfg):
             return
         if state.task is None or state.task.done():
-            _start_probe(cfg, state)
+            _start_probe(cfg, state, detach=True)
     except Exception:  # noqa: BLE001 (cache diagnostics must not fail operations)
         logger.exception("maybe_revalidate failed")
