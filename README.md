@@ -6,7 +6,7 @@
 
 相容目標為 SQL Server 2017+、Oracle 19c+、Python 3.11+。本次實機測試使用 SQL Server 2022、Oracle 23.26.3，以及 Oracle Thin／Thick、TCP／TCPS。Oracle 19c 原版與 LDAP current-user DB link 尚未實機認證。
 
-## 安裝 0.8.0
+## 安裝 0.8.1
 
 產品、CLI 與 MCP server 名稱為 `db-semantic-mcp`，Python module 為 `db_semantic_mcp`，distribution 為 **`lukestack-db-semantic-mcp`**。本版尚未發布到 PyPI，請從原始碼或自行建置的 wheel 安裝。PyPI 通用名稱已由其他專案使用。GitHub repository 已統一為 `LukeStackLab/db-semantic-mcp`。
 
@@ -27,7 +27,7 @@ db-semantic-mcp --help
 
 ```bash
 uv build
-uv tool install --reinstall './dist/lukestack_db_semantic_mcp-0.8.0-py3-none-any.whl[oracle]'
+uv tool install --reinstall './dist/lukestack_db_semantic_mcp-0.8.1-py3-none-any.whl[oracle]'
 ```
 
 Oracle 預設 Thin，不需 Oracle Client。Thick 需安裝相容的官方 Oracle Client，明確設定 `driver_mode: "thick"`，必要時指定 `client_lib_dir`。模式屬於整個 process；切換模式時使用新的 MCP process。參考官方 [安裝](https://python-oracledb.readthedocs.io/en/stable/user_guide/installation.html)與 [初始化](https://python-oracledb.readthedocs.io/en/stable/user_guide/initialization.html)。

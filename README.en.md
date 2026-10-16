@@ -6,7 +6,7 @@ MCP tools for SQL Server and Oracle: discover objects, inspect relationships and
 
 Compatibility targets: SQL Server 2017+, Oracle 19c+, Python 3.11+. The actual live matrix uses SQL Server 2022 and Oracle 23.26.3, with Oracle Thin/Thick and TCP/TCPS. Exact Oracle 19c and LDAP current-user links have not been live certified.
 
-## Install 0.8.0 from source or a built wheel
+## Install 0.8.1 from source or a built wheel
 
 Product/CLI/MCP name: `db-semantic-mcp`. Python module: `db_semantic_mcp`. Distribution: **`lukestack-db-semantic-mcp`**. This release has not been published to PyPI. The generic PyPI name belongs to another project. The GitHub repository is `LukeStackLab/db-semantic-mcp`.
 
@@ -25,7 +25,7 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first. If 
 
 ```bash
 uv build
-uv tool install --reinstall './dist/lukestack_db_semantic_mcp-0.8.0-py3-none-any.whl[oracle]'
+uv tool install --reinstall './dist/lukestack_db_semantic_mcp-0.8.1-py3-none-any.whl[oracle]'
 ```
 
 Thin is the default and needs no Oracle Client. Thick requires matching official Oracle Client libraries, explicit `driver_mode: "thick"`, and `client_lib_dir` when needed. Mode is process-wide: use a fresh MCP process for each mode. See [official driver installation](https://python-oracledb.readthedocs.io/en/stable/user_guide/installation.html) and [initialization](https://python-oracledb.readthedocs.io/en/stable/user_guide/initialization.html).

@@ -1,6 +1,6 @@
 [project]
 name = "lukestack-db-semantic-mcp"
-version = "0.8.0"
+version = "0.8.1"
 description = "Semantic intelligence layer for SQL Server and Oracle databases, exposed via MCP. A database understanding engine for AI agents (Claude Code CLI, Codex CLI, Claude Desktop, etc.)."
 readme = "README.en.md"
 requires-python = ">=3.11"

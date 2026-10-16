@@ -5,6 +5,10 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-10-16
+
+- Add opt-in SQLite execution recording for tool calls and the SQL they run. It is off by default, stores full SQL and parameters in the connection cache, and does not change MCP tool responses. See docs/validation-execution-recording.md.
+
 ## [0.8.0] - 2026-10-16
 
 - Rename the product/CLI to db-semantic-mcp, module to db_semantic_mcp, and distribution to lukestack-db-semantic-mcp. This release is source/wheel only; no PyPI publication.

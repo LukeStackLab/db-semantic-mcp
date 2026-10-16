@@ -66,5 +66,5 @@ def test_distribution_exposes_only_the_new_product_entrypoint():
 
     project = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())["project"]
     assert project["name"] == "lukestack-db-semantic-mcp"
-    assert project["version"] == __version__ == "0.8.0"
+    assert project["version"] == __version__ == "0.8.1"
     assert project["scripts"] == {"db-semantic-mcp": "db_semantic_mcp.main:main"}

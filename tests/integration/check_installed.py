@@ -48,10 +48,10 @@ async def mcp_query(path, sql):
 
 def main(mode):
     assert mode in {"base", "oracle"}
-    assert importlib.metadata.version("lukestack-db-semantic-mcp") == "0.8.0"
+    assert importlib.metadata.version("lukestack-db-semantic-mcp") == "0.8.1"
     cli = Path(sys.executable).parent / ("db-semantic-mcp.exe" if os.name == "nt" else "db-semantic-mcp")
     version = subprocess.run([str(cli), "--version"], capture_output=True, text=True, check=True)
-    assert version.stdout.strip() == "db-semantic-mcp 0.8.0"
+    assert version.stdout.strip() == "db-semantic-mcp 0.8.1"
     subprocess.run([str(cli), "--help"], capture_output=True, check=True)
     if mode == "base":
         assert importlib.util.find_spec("oracledb") is None
@@ -96,7 +96,7 @@ def main(mode):
             {
                 "status": "passed",
                 "install": mode,
-                "version": "0.8.0",
+                "version": "0.8.1",
                 "provider": cfg.database_type,
                 "driver_mode": diagnostic.get("driver_mode"),
                 "transport": diagnostic.get("transport"),

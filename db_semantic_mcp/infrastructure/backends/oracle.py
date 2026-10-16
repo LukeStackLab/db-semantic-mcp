@@ -20,7 +20,7 @@ def _driver():
     except ImportError:
         raise MissingOracleDriverError(
             "Oracle driver is missing. From the source checkout run: uv pip install '.[oracle]' "
-            "or install your built lukestack_db_semantic_mcp-0.8.0 wheel with [oracle]."
+            "or install your built lukestack_db_semantic_mcp-0.8.1 wheel with [oracle]."
         ) from None
 
 

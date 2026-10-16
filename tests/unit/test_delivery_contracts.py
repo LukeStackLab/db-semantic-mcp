@@ -67,7 +67,7 @@ def test_version_works_without_configuration(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert capsys.readouterr().out == "db-semantic-mcp 0.8.0\n"
+    assert capsys.readouterr().out == "db-semantic-mcp 0.8.1\n"
 
 
 def test_config_repr_does_not_include_password():
