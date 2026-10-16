@@ -74,6 +74,8 @@ Docker demo 必須在私有 state 讀寫及任何資源操作前，用已安裝 
 
 ## 最終審查補強
 
-Oracle live 欄位證據必須涵蓋隱含自訂程式碼風險。ORDER BY 比較 named object type 可觸發 MAP method；讀取 NUMBER virtual column 也可呼叫自訂函式。無法證明安全時，在 caller SQL parse／execute 前拒絕，包含 alias、VIEW、remote 與 wildcard 等路徑；不能以事後 rollback 補救自主交易。普通 physical scalar 欄位查詢應保持可用。
+Oracle live 欄位證據必須涵蓋隱含自訂程式碼風險。ORDER BY 比較 named object type 可觸發 MAP method；讀取 NUMBER virtual column 也可呼叫自訂函式。無法證明安全時，在 caller SQL parse／execute 前拒絕，包含 alias、VIEW、remote 與 wildcard 等路徑；不能以事後 rollback 補救自主交易。普通、沒有隱含 callback 風險的 physical scalar table 應保持可用。
 
 Local cache identity 必須在正式啟動、init_store、cache_first、warmup 與讀取前固定，包含 provider、endpoint／service、principal、Oracle options、effective policy 與 source 身分。使用者設定的 cache path 作為根路徑，既有 cache 不刪除；相同 identity 穩定重用，source clone、request snapshot 與 reload 使用一致規則。
+
+Safe-read 採整個 physical target 的保守證據：named type、virtual column、VPD、domain／function-based index、external／object table 等無法證明安全的 callback 路徑拒絕，純 virtual expression 亦不例外；改選其他欄位不會繞過整表 gate。一般 primitive physical table 與已知內建 LOB index 保留支援。Stored scalar MATERIALIZED VIEW 另須 live ALL_MVIEWS.ON_QUERY_COMPUTATION=N；缺失、未知或 Y 拒絕。Real-time MV gate 是未證明動態路徑的保守限制，未宣稱已重現該功能攻擊。

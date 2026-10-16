@@ -26,5 +26,7 @@
 | 20 | 過寬標頭採有界不完整結果，保留 `executed`，並回 `columns_omitted`／`truncated`／`result_complete=false`。 | SQL 已交給 driver 執行，不能為輸出過寬而假稱未執行；本項修訂第 10 項的 error 用語。 | Caller 必須檢查完整性旗標，不能把 `executed` 當成完整保證。 |
 | 21 | 執行前以 live 欄位證據拒絕無法證明安全的 named object type／virtual expression。 | MAP 與 virtual-column 函式已實測在 SELECT-only policy 下觸發自主寫入。 | 部分合法複雜欄位查詢需要改讀 physical scalar 欄位或等待明確支援。 |
 | 22 | 所有正式 local cache 入口先建立連線／policy／source identity namespace，原 path 留作根路徑。 | Oracle env 模式的不同 endpoint／principal／mode 原先會共用 cache。 | 舊 cache 可能需要一次 warmup，並產生各 identity 的獨立檔案；不刪除舊檔。 |
+| 23 | Safe-read 採整個 physical target gate，保守拒絕 virtual／named type／VPD／domain 或 function index／external 或 object table 等未證明路徑。 | 用小型可信 catalog proof 涵蓋隱含 callback，避免實作不完整 PL/SQL parser；保留普通 primitive table 與內建 LOB index。 | 即使 pure virtual 或合法 function index，也可能整表拒絕；改選其他欄位不能繞過。本項修訂第 21 項的 projection 用語。 |
+| 24 | Stored scalar MVIEW 只接受已證明 `ON_QUERY_COMPUTATION=N`。 | [Oracle 19c catalog](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_MVIEWS.html) 可標示 real-time MV；目前沒有解析其動態路徑。 | Real-time MV 直接讀取可能安全，仍保守不支援；沒有宣稱此案例已實機重現。 |
 
 另有一項交付修正：每個 Oracle request 固定使用同版 policy，避免 proof 與 FK 過濾混用版本。
