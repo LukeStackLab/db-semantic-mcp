@@ -63,7 +63,7 @@ def test_sources_are_independent_and_routes_are_not_auth():
     assert erp.source_dblink == "ERP.EXAMPLE"
     assert len({erp.cache_path, crm.cache_path, cfg.cache_path}) == 3
     assert erp.for_source("crm").cache_path == crm.cache_path
-    assert erp.for_source("local").cache_path == cfg.cache_path
+    assert erp.for_source("local").cache_path == cfg.for_source("local").cache_path
     erp.sources.clear()
     assert len(cfg.sources) == 2
     with pytest.raises(ValueError):

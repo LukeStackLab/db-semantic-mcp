@@ -191,6 +191,7 @@ class OracleBackend:
             "transport_required": "tcps" if cfg.encrypt else "tcp",
             "remote_transport": "DB-link transport is managed by the database; not verified end-to-end TLS",
             "inventory_scope": "Application schemas (ORACLE_MAINTAINED=N); explicit policy.allowed_schemas overrides",
+            "query_target_subset": "Live-proven physical scalar columns; whole target denied for named/virtual/unknown columns, VPD, external/object tables or callable/unknown indexes; views require dependency proof; materialized views require ON_QUERY_COMPUTATION=N",
             "definitions": True,
             "dependencies": True,
             "remote_sources": True,

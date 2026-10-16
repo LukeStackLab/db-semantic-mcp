@@ -22,6 +22,8 @@ class Catalog:
             ("remote", "ERP", "ORDERS"): "TABLE",
         }
         self.synonyms = {("local", "PUBLIC", "DUAL"): ("SYS", "DUAL", None)}
+        self.columns = {}
+        self.access_paths = {}
         self.calls = []
         self.route = {
             "owner": "ERP",
@@ -40,7 +42,12 @@ class Catalog:
         source = "remote" if "@SALES.EXAMPLE" in sql else "local"
         key = source, params.get("owner", "PUBLIC"), params.get("name")
         if "all_tab_columns" in sql:
-            return [("ID",), ("AMOUNT",), ("DUMMY",)]
+            return [(row[0],) for row in self.columns.get(key, [("ID",), ("AMOUNT",), ("DUMMY",)])]
+        if "all_tab_cols" in sql:
+            return self.columns.get(key, [(name, "NUMBER", None, "NO", "NO") for name in ("ID", "AMOUNT", "DUMMY")])
+        for view in ("all_policies", "all_external_tables", "all_object_tables", "all_indexes", "all_mviews"):
+            if view in sql:
+                return self.access_paths.get((key, view), [])
         if "all_objects" in sql:
             kind = self.objects.get(key)
             return [(kind,)] if kind else []

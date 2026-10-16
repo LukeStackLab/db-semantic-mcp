@@ -63,3 +63,19 @@ Native Thin TIMESTAMP(p>6)/TZ/LTZ is deliberately rejected with TO_CHAR guidance
 Release proof and exact counts are recorded in [validation-0.8.0.md](validation-0.8.0.md). Mock coverage is distinct from real server evidence. Oracle 19c exact-server certification, LDAP current-user links and real distributed in-doubt recovery remain outside the demonstrated matrix.
 
 For isolated wheel CLI/doctor/actual-MCP smoke without pytest, use the committed [check_installed.py](../tests/integration/check_installed.py) commands in the [validation evidence](validation-0.8.0.md). The smoke uses the same disposable opt-in and profile path requirements.
+
+## Implicit custom-code negative proof
+
+The committed `tests/integration/probe_oracle_implicit_code.py` is a standalone destructive-fixture probe, never collected by ordinary pytest. Use only an owned disposable Oracle endpoint. Set the same absolute profile and disposable opt-in variables as above, plus `DBMCP_ORACLE_ADMIN_PASSWORD` privately for SYSTEM on that endpoint. The profile supplies the ordinary query principal and Thin/Thick options. Run each mode in a fresh process:
+
+```bash
+.venv/bin/python tests/integration/probe_oracle_implicit_code.py
+```
+
+The probe creates a unique `NO AUTHENTICATION` schema. It grants the existing query principal SELECT on its fresh tables and EXECUTE on its fresh fixture type/function. It exercises an autonomous MAP method in ORDER BY and an autonomous DETERMINISTIC function behind a NUMBER virtual column, plus wildcard/synonym/view paths. The SELECT-only MCP policy explicitly denies the fixture log table. Every negative case must report denial, zero caller driver parse/execute calls, and zero autonomous log rows. A separate physical scalar table must still return two rows. `finally` drops the entire fresh schema and verifies its absence. No existing fixtures, user profiles or DB links are modified.
+
+The runtime deliberately refuses the entire target when any column is named/object, virtual (including pure expressions and hidden function-index columns) or unknown. It also refuses VPD policies on targets/aliases, external/object tables, and domain/function-based/unknown indexes. Selecting only a different column does not bypass this gate. Supported built-in index storage remains usable. VIEW definitions and their dependencies still need the existing live proof. The proof is same-session catalog evidence before caller SQL parse/execute; it does not parse PL/SQL or provide a bypass.
+
+Catalog references: [ALL_TAB_COLS](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_TAB_COLS.html) includes hidden-column/type-owner/virtual flags; [ALL_POLICIES](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_POLICIES.html) exposes accessible-object VPD policies; [ALL_INDEXES](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_INDEXES.html) identifies index storage/access types.
+
+Stored scalar materialized views require live `ALL_MVIEWS.ON_QUERY_COMPUTATION=N`. Y, unknown or missing evidence is conservatively refused because dynamic query-computation paths have not been proven. This is a supported-subset limit, not a reproduced exploit or a claim that every direct SELECT of a real-time materialized view invokes custom code. See [ALL_MVIEWS](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/ALL_MVIEWS.html).

@@ -10,6 +10,7 @@ from ...config import Config
 from ...policy.models import PolicyProfile
 from ...policy.scope import ObjectReference, oracle_object_allowed
 from . import oracle_catalog as catalog
+from .oracle_read_safety import reject_policy_functions, verified_columns
 
 
 @dataclass
@@ -240,15 +241,16 @@ class OracleResolver:
             target = self.result.targets.get(reference)
             if target is None:
                 raise PermissionError("Unresolved Oracle column source")
-            rows = catalog._fetch(
+            for alias in self.result.chains.get(reference, []):
+                if alias != target:
+                    reject_policy_functions(self.conn, alias.schema, alias.name, self._suffix(alias.source))
+            columns = verified_columns(
                 self.conn,
-                f"SELECT column_name FROM sys.all_tab_columns{self._suffix(target.source)} "
-                "WHERE owner=:owner AND table_name=:name",
-                {"owner": target.schema, "name": target.name},
+                target.schema,
+                target.name,
+                self._suffix(target.source),
+                self.result.object_types[target],
             )
-            columns = {row[0]: "UNKNOWN" for row in rows}
-            if not columns:
-                raise PermissionError("Oracle column evidence is unavailable")
             target_columns.update(columns)
             alias = table.args.get("alias") or exp.TableAlias(this=table.this.copy())
             table_names.add(alias.name)

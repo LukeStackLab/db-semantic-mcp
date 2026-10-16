@@ -27,6 +27,7 @@ def base(tmp_path, monkeypatch):
     reset_context()
     ctx = Context(cfg)
     ctx.policy._policy = PolicyProfile(profile_name="readonly", scope={"sources": {"one": {}, "two": {}}})
+    ctx.cfg.scope_cache(ctx.policy.current_policy())
     calls = []
 
     def resolve(base, source):

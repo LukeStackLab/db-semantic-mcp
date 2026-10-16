@@ -32,6 +32,7 @@ class Context:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.policy = PolicyService(cfg)
+        cfg.scope_cache(self.policy.current_policy())
         self.query = QueryService(self.policy, cfg)
         self.workflow = WorkflowFacade(cfg, self.policy, self.query)
 
@@ -271,6 +272,16 @@ async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
         base = get_context()
         if name == "get_execution_policy" and arguments.get("reload"):
             base.policy.reload()
+            if base.cfg.database_type != "oracle":
+                previous_path = base.cfg.cache_path
+                base.cfg.scope_cache(base.policy.current_policy())
+                if base.cfg.cache_path != previous_path:
+                    from .source_context import _initialize
+
+                    await _initialize(base)
+                cfg = base.cfg.model_copy(deep=True)
+                cfg._policy_snapshot = base.policy.current_policy().model_copy(deep=True)
+                base = Context(cfg)
         async with bind_source(base, source):
             return await _dispatch_bound_tool(name, arguments)
     except Exception as exc:  # noqa: BLE001 (source security boundary)

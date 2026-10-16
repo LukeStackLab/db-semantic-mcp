@@ -154,7 +154,7 @@ class PolicyService:
             try:
 
                 def authorize(connection):
-                    resolver = OracleResolver(self._cfg.for_source("local"), connection, policy)
+                    resolver = OracleResolver(self._cfg.for_source("local", policy=policy), connection, policy)
                     for ref in intent.object_references:
                         resolver.resolve(ref, intent.primary_operation.value)
                     from ..policy.intents.oracle_analyzer import parse_oracle
@@ -165,7 +165,7 @@ class PolicyService:
                 if conn is not None:
                     resolved = authorize(conn)
                 else:
-                    with open_connection(self._cfg.for_source("local")) as connection:
+                    with open_connection(self._cfg.for_source("local", policy=policy)) as connection:
                         resolved = authorize(connection)
             except Exception:  # noqa: BLE001 (catalog/driver details can contain credentials)
                 allowed, reason, rule = (
@@ -188,7 +188,7 @@ class PolicyService:
             hints = {
                 "sql_not_authorizable": "Use one Oracle SELECT or simple INSERT VALUES / UPDATE WHERE. Custom functions, PL/SQL, NEXTVAL, FOR UPDATE and RETURNING are unsupported.",
                 "top_required": "Add FETCH FIRST n ROWS ONLY to every outer SELECT branch.",
-                "object_scope": "Use explicitly configured DB links and permit every synonym alias and physical target in its source scope. Quote case-sensitive Oracle names with double quotes.",
+                "object_scope": "Use explicitly configured DB links and permit every synonym alias and physical target in its source scope. Quote case-sensitive Oracle names with double quotes. Targets need live scalar-column/access-path evidence; named types, virtual columns and callable policies/indexes are unsupported.",
             }
             out["denial"] = _denial("oracle_policy", rule, reason, result.detail)
             out["denial"]["hint"] = hints.get(

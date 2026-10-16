@@ -1,6 +1,5 @@
 """One immutable connection profile per MCP process."""
 
-import hashlib
 import json
 import os
 import sys
@@ -257,22 +256,6 @@ def load_profile(path: Path) -> Config:
     cfg.query_timeout = min(cfg.query_timeout, policy.constraints.query_timeout_seconds)
     if not profile.readonly and not policy.constraints.require_where_for_update:
         raise SetupError("受限寫入必須要求 UPDATE 使用 WHERE。")
-    identity = hashlib.sha256(
-        json.dumps(
-            {
-                "database_type": profile.database_type,
-                "oracle": profile.oracle.model_dump() if profile.oracle else None,
-                "sources": {key: value.model_dump() for key, value in profile.sources.items()},
-                "server": profile.server,
-                "port": profile.port,
-                "database": profile.database,
-                "user": profile.user,
-                "policy": policy.model_dump(),
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
-    # A changed target/principal/policy gets a fresh cache without deleting
-    # another process's existing cache.
-    cfg.cache_path = str(path.parent / "cache" / identity[:24] / "semantic.db")
-    return cfg
+    from .services.policy_service import PolicyService
+
+    return cfg.scope_cache(PolicyService(cfg).current_policy())

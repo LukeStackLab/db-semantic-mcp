@@ -37,8 +37,8 @@ async def _startup() -> asyncio.Task | None:
         cfg.database,
     )
 
+    get_context()  # Bind effective policy/cache identity before any cache or DB work.
     await init_store(cfg.cache_path)
-    get_context()  # Fail closed on an invalid explicit policy before DB work.
 
     bg_task: asyncio.Task | None = None
     if cfg.cache_enabled:

@@ -25,7 +25,12 @@ def query_reference(cfg, schema, name):
 
 def _proof(cfg, policy, conn, schema, name):
     resolved = resolve_object(
-        cfg.for_source("local"), conn, policy.current_policy(), schema, name, source=cfg.source_id
+        cfg.for_source("local", policy=policy.current_policy()),
+        conn,
+        policy.current_policy(),
+        schema,
+        name,
+        source=cfg.source_id,
     )
     canonical = resolved["canonical_config"]
     target = resolved["target"]
@@ -42,7 +47,7 @@ def _proof(cfg, policy, conn, schema, name):
 def _resolve_candidates(policy, candidates, limit):
     cfg = policy._cfg
     result = []
-    with open_connection(cfg.for_source("local")) as conn:
+    with open_connection(cfg.for_source("local", policy=policy.current_policy())) as conn:
         for row in candidates:
             try:
                 _, proof = _proof(cfg, policy, conn, row["schema_name"], row["table_name"])
@@ -87,7 +92,7 @@ async def list_tables(db_path, database, *, schemas=None, keyword=None, limit=No
 
 def _describe(policy, schema, table, columns):
     cfg = policy._cfg
-    with open_connection(cfg.for_source("local")) as conn:
+    with open_connection(cfg.for_source("local", policy=policy.current_policy())) as conn:
         resolved, proof = _proof(cfg, policy, conn, schema, table)
         target, canonical = resolved["target"], resolved["canonical_config"]
         s = catalog_suffix(canonical, conn)

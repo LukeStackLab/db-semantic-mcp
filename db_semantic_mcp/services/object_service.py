@@ -386,7 +386,7 @@ def _describe_oracle(cfg, schema, name, object_type, policy):
     if kind not in {"VIEW", "MATERIALIZED VIEW", "PROCEDURE", "FUNCTION", "PACKAGE", "PACKAGE BODY", "SYNONYM"}:
         return {"status": "error", "error_message": "Unsupported Oracle object type"}
     try:
-        with open_connection(cfg.for_source("local")) as conn:
+        with open_connection(cfg.for_source("local", policy=policy.current_policy())) as conn:
             resolver = OracleResolver(cfg, conn, policy.current_policy())
             source_cfg = resolver.source_config(cfg.source_id)
             scope = (

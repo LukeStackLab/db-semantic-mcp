@@ -92,15 +92,17 @@ async def source_context(base, source="local"):
         cfg._policy_snapshot = base.policy.current_policy().model_copy(deep=True)
         ctx = Context(cfg)
         ctx.policy.load()
-        return ctx
-    if source not in base.cfg.sources:
+        if cfg.cache_path == base.cfg.cache_path:
+            return ctx
+    elif source not in base.cfg.sources:
         raise ValueError("Unknown source")
-    # Every request proves the route/principal and current policy BEFORE cache
-    # lookup. Cache availability can never authorize an inaccessible route.
-    policy_snapshot = base.policy.current_policy().model_copy(deep=True)
-    proof_context = SimpleNamespace(cfg=base.cfg, policy=SimpleNamespace(current_policy=lambda: policy_snapshot))
-    cfg = await run_db_work(base.cfg, _resolve_source, proof_context, source)
-    cfg._policy_snapshot = policy_snapshot
+    if source != "local":
+        # Prove route/principal and current policy before cache lookup.
+        policy_snapshot = base.policy.current_policy().model_copy(deep=True)
+        proof_context = SimpleNamespace(cfg=base.cfg, policy=SimpleNamespace(current_policy=lambda: policy_snapshot))
+        cfg = await run_db_work(base.cfg, _resolve_source, proof_context, source)
+        cfg._policy_snapshot = policy_snapshot
+        cfg.scope_cache(policy_snapshot)
     states = _STATES.setdefault(asyncio.get_running_loop(), {})
     key = (id(base), source)
     entry = states.get(key)

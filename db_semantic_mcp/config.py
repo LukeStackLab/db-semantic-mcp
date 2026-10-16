@@ -101,6 +101,8 @@ class Config(BaseSettings):
     _base_cache_path: str | None = PrivateAttr(default=None)
     _policy_snapshot: object | None = PrivateAttr(default=None)
     _resolved_dblink: str | None = PrivateAttr(default=None)
+    _cache_route_identity: dict | None = PrivateAttr(default=None)
+    _cache_policy: object | None = PrivateAttr(default=None)
     windows_auth: bool = False
     encrypt: bool = False
     db_worker_limit: int = Field(default=4, ge=1, le=32)
@@ -179,39 +181,52 @@ class Config(BaseSettings):
             raise ValueError("Local source cannot have a DB link")
         return self
 
-    def for_source(self, source_id: str = "local", *, route_identity: dict | None = None) -> "Config":
+    def scope_cache(self, policy=None) -> "Config":
+        """Bind a cache to effective authority, always deriving from the original root.
+
+        Passwords are deliberately excluded. Credential rotation for the same
+        principal does not change metadata authority. No existing files are moved.
+        """
+        if policy is None:
+            policy = self._policy_snapshot or self._cache_policy
+        if policy is None:
+            from .services.policy_service import PolicyService
+
+            policy = PolicyService(self).current_policy()
+        self._cache_policy = policy.model_copy(deep=True)
+        base = self._base_cache_path or self.cache_path
+        self._base_cache_path = base
+        identity = {
+            "version": 1,
+            "provider": self.database_type,
+            "server": self.server,
+            "port": self.port,
+            "database": self.database,
+            "user": self.user,
+            "windows_auth": self.windows_auth,
+            "encrypt": self.encrypt,
+            "oracle": self.oracle.model_dump() if self.oracle else None,
+            "sources": {key: value.model_dump() for key, value in self.sources.items()},
+            "source": self.source_id,
+            "catalog_route": self._cache_route_identity,
+            "policy": policy.model_dump(),
+        }
+        digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
+        path = Path(base)
+        self.cache_path = str(path.parent / "identities" / digest / path.name)
+        return self
+
+    def for_source(self, source_id: str = "local", *, route_identity: dict | None = None, policy=None) -> "Config":
         """Clone request context; route selection itself does not grant authorization."""
         if source_id != "local" and source_id not in self.sources:
             raise ValueError("Unknown source")
         clone = self.model_copy(deep=True)
-        base = self._base_cache_path or self.cache_path
-        clone._base_cache_path = base
+        clone._base_cache_path = self._base_cache_path or self.cache_path
         clone.source_id = source_id
+        clone._cache_route_identity = route_identity if source_id != "local" else None
         clone._resolved_dblink = (route_identity or {}).get("db_link") if source_id != "local" else None
         clone.source_dblink = None if source_id == "local" else self.sources[source_id].db_link
-        if source_id == "local":
-            clone.cache_path = base
-        else:
-            identity = hashlib.sha256(
-                json.dumps(
-                    {
-                        "source": source_id,
-                        "catalog_route": route_identity,
-                        "route": self.sources[source_id].model_dump(),
-                        "server": self.server,
-                        "database": self.database,
-                        "port": self.port,
-                        "user": self.user,
-                        "oracle": self.oracle.model_dump() if self.oracle else None,
-                        "policy_file": self.policy_file,
-                        "policy_profile": self.policy_profile,
-                    },
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()[:24]
-            path = Path(base)
-            clone.cache_path = str(path.parent / "sources" / identity / path.name)
-        return clone
+        return clone.scope_cache(policy)
 
 
 _config: Config | None = None
@@ -223,7 +238,7 @@ def get_config() -> Config:
         return request
     global _config
     if _config is None:
-        _config = Config()
+        _config = Config().scope_cache()
     return _config
 
 
@@ -236,4 +251,4 @@ def reset_config() -> None:
 def configure(cfg: Config) -> None:
     """Select the fixed configuration before starting this process."""
     global _config
-    _config = cfg
+    _config = cfg.scope_cache()

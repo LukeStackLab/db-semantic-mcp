@@ -89,3 +89,31 @@ Artifact inspection checks the exact 0.8.0 filenames. The wheel contains only th
 Compatibility targets remain SQL Server 2017+ and Oracle 19c+. Exact SQL Server 2017/2019 and Oracle 19c servers were not tested. LDAP/current-user DB links were not certified; fixed-user/other tested principals do not establish LDAP compatibility. Real distributed in-doubt failure/recovery was not induced; unknown commit/rollback outcomes are covered by contract failure injection and are never automatically retried.
 
 Opaque PL/SQL definitions are withheld; only authorized metadata/static dependencies are exposed with unknown IO completeness. Thin native high/unknown precision TIMESTAMP/TZ/LTZ is rejected; TO_CHAR is required or explicit Thick. Remote LOB behavior is driver/version dependent. Oracle timeout is per round trip, not a total deadline. Client cancellation cannot abort a running synchronous driver and may be followed by completed writes. Verify uncertain outcomes before manual retry. DB link transport remains database-managed and is not certified end-to-end TLS.
+
+## Final whole-branch review corrections (2026-10-16)
+
+The final implementation closes I1 (implicit Oracle callbacks), I2 (environment/local cache identity) and M1 (README execution-contract drift). These results supersede the earlier automated-count row for the corrected runtime; earlier live matrix entries retain their original scope.
+
+| Final check | Result |
+|---|---|
+| `.venv/bin/pytest -q` | **935 passed, 14 skipped**, 3.61s, no warnings |
+| New implicit-code and cache-identity focused modules | **57 passed**, 0.40s |
+| `.venv/bin/ruff check .` / `ruff format --check .` | Passed; 186 files formatted |
+| `uv lock --check` | 56 packages; lock unchanged, 54/54 retained resolutions preserved |
+| `uv build` / `git diff --check` | Wheel + sdist built; whitespace check passed |
+| `python scripts/demo.py check` | SQL + Oracle local + Oracle remote demo: doctor, Decimal, compound FK, actual 12-tool MCP and queries passed |
+| Disposable implicit-code probe, Thin + Thick | **6 denied cases per mode**, zero caller parse/execute, zero autonomous log rows; scalar SELECT succeeded; both fresh schemas removed |
+| Environment-entrypoint MCP cache proof | Thin application principal, Thin SYSTEM and Thick application principal used **3 distinct cache namespaces** under one root; repeated Thin startup reused its existing cache; relationships and SQL succeeded in all 4 starts |
+| Clean installed wheel, Python 3.11 | SQL-only base plus Oracle Thin/Thick TCP: **3/3** actual doctor/12-tool MCP/query cases passed |
+
+The 14 default skips remain explicitly opted-in integration tests; the standalone implicit-code probe is not a pytest test and is counted separately. The final whole-branch baseline had 878 passing portable tests before this wave. This wave adds 57 tests. The first integrated run found SQL Server protocol-fixture regressions from an unnecessary change to local dispatch; preserving the existing SQL Server dispatch path resolved them. The final run above includes the corrected path and the later synonym-policy, built-in-index and materialized-view evidence checks.
+
+The new tests demonstrate meaningful RED/GREEN behavior: with the pre-fix resolver restored, the initial 35 implicit-code checks failed, including 24 unsafe-column/path cases reaching execution instead of denial. With the pre-fix cache entrypoints restored, all 11 cache-isolation checks failed. Both modules pass with the correction; 11 further cases cover alias VPD, built-in index storage and materialized-view computation evidence. No secrets or private live-state files are included in the portable tests.
+
+Oracle now checks same-session `SYS.ALL_TAB_COLS` evidence, including named type owner, hidden and virtual-column flags, before any caller driver parse/execute. The gate rejects the whole physical target, including unused unsafe columns and pure virtual expressions. Alias/target VPD policies, external/object tables and domain/function-based/unknown indexes are refused. Ordinary scalar tables, approved builtins and built-in normal/reverse/bitmap/IOT/LOB/cluster index storage remain supported. Views retain recursive live source/definition proof. Stored scalar materialized views require `ON_QUERY_COMPUTATION=N`; unknown/missing/Y is conservatively rejected. This materialized-view restriction is not a reproduced attack or a claim that every direct SELECT invokes a callback.
+
+The actual exploit probe covered MAP ORDER BY, NUMBER virtual column, both wildcard paths, synonym and view. It used only fresh NO AUTHENTICATION schemas on the previously owned disposable Oracle node, and always dropped them. Domain-index/VPD/materialized-view attack execution was **not** reproduced; those guards have catalog-contract tests. Exact Oracle 19c remains untested. Existing broader version, TLS, LDAP/current-user-link, distributed-outcome and cancellation limits above still apply. The last callback-guard additions have focused coverage; the actual environment cache and demo matrix results were obtained before those narrow guard additions, which did not change cache identity or demo configuration.
+
+Cache identity is now shared by profile and environment startup, request contexts and source clones. It includes provider, endpoint/service, principal, Oracle options, effective policy and source/route, and is established before init_store/cache-first/readers. The configured path is retained as the root; repeated clones do not add hash layers. Reload creates the appropriate new namespace while Oracle in-flight requests keep their original policy/cache snapshot. Existing cache files are retained; one initial warmup may be needed.
+
+The three READMEs now distinguish Oracle/fixed-profile strict affected-row behavior from non-fixed SQL Server report mode, v2 `budget` rejection from v1 migration, actual provider doctor fields, and bounded incomplete headers with truthful `executed` plus `columns_omitted`, `truncated`, `result_complete=false`.

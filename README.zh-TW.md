@@ -56,7 +56,7 @@ db-semantic-mcp serve --config /absolute/private/connection.json
 db-semantic-mcp doctor --config /absolute/private/connection.json
 ```
 
-Client entry 使用安裝環境的 Python，參數為 `-I -m db_semantic_mcp.main serve --config ABSOLUTE_PATH`。移動環境後需重新安裝並執行 setup。Doctor 回報實際本機傳輸協定、server／driver 版本、source 可用性、完整 capabilities 與 MCP 工具數，不寫入資料測試權限。
+Client entry 使用安裝環境的 Python，參數為 `-I -m db_semantic_mcp.main serve --config ABSOLUTE_PATH`。移動環境後需重新安裝並執行 setup。Doctor 對 SQL Server 回報 database 與 visible_tables；對 Oracle 回報 server version、driver mode、實際本機傳輸協定、source 可用性與完整 capabilities。兩者都回報 MCP 工具數，未回報 driver 套件版本，也不寫入資料測試權限。
 
 | 平台 | 預設配置根目錄 |
 |---|---|
@@ -89,6 +89,8 @@ Oracle inventory 預設探索 `ORACLE_MAINTAINED=N` 應用 schemas；明確 `all
 
 兩種資料庫預設只允許 SELECT。明確啟用受限寫入後，允許單一 `INSERT ... VALUES` 或 `UPDATE ... WHERE`。拒絕 DELETE、DDL、procedure／PLSQL 執行、交易控制、不透明來源與不安全 batch。SQL Server 支援嚴格限制下的 scalar DECLARE／SET 後接一個 SELECT。Oracle 使用原生 SQL，不轉譯方言，並拒絕 SELECT FOR UPDATE、sequence、remote／自訂函式及未知的潛在副作用函式。MCP policy 不會授予資料庫權限。
 
+Caller SQL parse／execute 前，必須用同一連線的 SYS catalog 證明 physical scalar 欄位與受支援存取路徑。任一欄位含 named type、virtual column 或未知型別時拒絕整個 target，包含 hidden 欄位；VPD policy、external／object table、domain／function-based／未知索引也拒絕。即使只選其他安全欄位，或使用 `*`、filter、join、group、sort，經 synonym、view、remote link 都適用。普通 physical scalar table 與允許的 builtin 仍可使用。VIEW 另須證明即時定義與 dependencies。MATERIALIZED VIEW 必須即時證明 `ON_QUERY_COMPUTATION=N`；Y、未知或缺少證據皆保守拒絕，不表示每次直接 SELECT real-time MV 都會呼叫自訂程式碼。Catalog 證據不足就拒絕，不提供 PL/SQL expression parser 或略過開關。
+
 | 限制 | 預設 | 設定 |
 |---|---:|---|
 | 回傳列數 | 1000 | `max_rows_returned`；每次 `max_rows` 可降低 |
@@ -98,13 +100,13 @@ Oracle inventory 預設探索 `ORACLE_MAINTAINED=N` 應用 schemas；明確 `all
 | 影響列數 | 100 | `max_rows_affected` |
 | Timeout | 30 秒 | `query_timeout` |
 
-每格截斷時保留最多 max_cell_chars 個內容字元，另加可見截斷標記。回應 envelope 另計。欄名本身超出上限時回受控錯誤。截斷會附旗標與原因；`row_count` 為保留列數，未讀完時 `total_row_count=null`。用 WHERE、較少欄位、TOP／FETCH 或 aggregate 縮小結果。Oracle LOB 在 connection 存活期間有限量讀取，不先讀完整 LOB；遠端 LOB 能力依 driver／server 而異。
+每格截斷時保留最多 max_cell_chars 個內容字元，另加可見截斷標記。回應 envelope 另計。欄名本身超出上限時保留實際 `executed` 狀態，回 `columns_omitted=true`、`truncated=true`、`result_complete=false`，不回超大欄位清單。執行成功仍須檢查完整性旗標。截斷會附旗標與原因；`row_count` 為保留列數，未讀完時 `total_row_count=null`。用 WHERE、較少欄位、TOP／FETCH 或 aggregate 縮小結果。Oracle LOB 在 connection 存活期間有限量讀取，不先讀完整 LOB；遠端 LOB 能力依 driver／server 而異。
 
 Oracle NUMBER 保持 Decimal，不轉 float。Thin 只接受已證明 precision 0..6 的原生 TIMESTAMP；較高／未知 precision、TZ／LTZ 會拒絕並提示 TO_CHAR。Thick 保留 FF9 與時區文字，LTZ 以 UTC 輸出，因為資料庫未保存原始時區。可明確使用 `TO_CHAR(ts, 'YYYY-MM-DD HH24:MI:SS.FF9')`，TZ 使用 `TO_CHAR(tz, 'YYYY-MM-DD HH24:MI:SS.FF9 TZR TZD')`。Thin 的 LTZ 文字依登入 session timezone。SQLGlot 只分析，不改寫 SQL。
 
 Oracle `query_timeout` 對應單次 network round trip 的 `call_timeout`，不是整個查詢總 deadline。`connect_timeout` 是每個位址 TCP 建連上限，不是總登入 deadline。取消 MCP 等待或斷線不會中斷已執行的同步 driver。Worker 保留容量直到 cleanup 完成，寫入可能在 caller 取消後完成。取消不能作為 rollback 證據。
 
-固定 profile 超出影響列數上限一定 rollback。環境／policy 配置預設 report；可設 `strict_rows_affected_cap` 或每次 `affected_rows_policy="strict"` 啟用 rollback。Autocommit 關閉。Commit／rollback acknowledgement 不明時回 `transaction_state="unknown"`、`automatic_retry_allowed=false`。`executed=false` 不代表已 rollback。未知結果、timeout 或 client cancellation 後，先核對資料庫結果再手動重試。分散式寫入亦同，不強制處理 in-doubt transaction，也不自動重試。
+固定 profile 與所有 Oracle 配置超出影響列數上限一定 rollback，Oracle caller 指定 report 也相同。非固定 SQL Server 環境／policy 配置才預設 report；可設 `strict_rows_affected_cap` 或每次 `affected_rows_policy="strict"` 啟用 rollback。Autocommit 關閉。Commit／rollback acknowledgement 不明時回 `transaction_state="unknown"`、`automatic_retry_allowed=false`。`executed=false` 不代表已 rollback。未知結果、timeout 或 client cancellation 後，先核對資料庫結果再手動重試。分散式寫入亦同，不強制處理 in-doubt transaction，也不自動重試。
 
 `validate_result_schema=true` 可額外預檢已授權 SELECT 的結果 metadata，不代表業務邏輯正確。Oracle 不對未證明的 DDL 執行 parse。拒絕結果包含 rule／message／hint；受限定義附 omission／completeness 旗標。
 
@@ -112,7 +114,9 @@ Oracle `query_timeout` 對應單次 network round trip 的 `call_timeout`，不�
 
 12 個工具為 get_tables、describe_table、describe_object、get_table_relationships、get_dependency_chain、detect_lookup_tables、find_join_path、discover_relevant_tables、plan_or_execute_query、get_execution_policy、refresh_schema_cache、tool_metrics。Tool profiles：`all` 12、`query` 2、`explore` 8、`maintenance` 3。工具集合不改變授權。Resources 支援 `?source=CONFIGURED_ID`。
 
-每次回應包含精簡 provider／source／database 身分與 precision／driver 旗標。完整能力、timeout 語意、inventory 範圍與 temporal workaround 請呼叫 `get_execution_policy`，doctor 也會列出。不提供 summary／sample／detail 模式或 token budget，舊 `budget` 忽略。輸出有明確上限，並驗證 structuredContent／outputSchema。
+每次回應包含精簡 provider／source／database 身分與 precision／driver 旗標。完整能力、timeout 語意、inventory 範圍與 temporal workaround 請呼叫 `get_execution_policy`，doctor 也會列出。不提供 summary／sample／detail 模式或 token budget，v2 JSON 拒絕舊 `budget`；v1 由 `migrate` 移除該欄位。只有未標版本的程式內 profile 建構為相容而忽略它。輸出有明確上限，並驗證 structuredContent／outputSchema。
+
+所有正式入口包含 env 啟動，都在 cache-first 讀取前依 provider、endpoint／service、principal、effective policy、driver options 與 source／route 建立 namespace。設定的 cache path 留作根路徑；相同身分穩定重用，clone 不重複巢狀雜湊，policy reload 使用新 namespace。舊 cache 檔案保留。
 
 Metadata、resources、dependencies 與查詢共用 scope。複合 FK 保留順序與 identity；無有效唯一性證據時 cardinality 明示 unknown。Discovery 使用本機 metadata 與選用的 `discovery_aliases`，不呼叫外部模型。Cache fingerprint 涵蓋註解、constraints、indexes；預設 TTL 300 秒，single-flight 背景複驗。Remote 按需 warmup。離線舊內容明示 stale。回應的 snapshot identity 對應實際內容，不套用另一個更新完成的 snapshot。預設 DB worker 上限 4。`tool_metrics` 記錄 bytes、latency、worker wait 與失敗類別，不保存 SQL、資料列或密碼。
 
