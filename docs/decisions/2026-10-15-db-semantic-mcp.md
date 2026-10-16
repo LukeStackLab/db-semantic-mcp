@@ -37,6 +37,8 @@
 
 本機 checkout 已改為 `/Users/luke/Documents/Github/db-semantic-mcp`，保留既有分支、commit、私有 demo 設定與資料。
 
-GitHub 登入帳號 `lukedev999-boom` 對 `LukeStackLab/sqlserver-semantic-mcp` 有 Push 權限，但沒有 Admin 權限。改名 API 回傳 HTTP 404，遠端改名未完成。因此 `origin`、README 與套件 metadata 暫時保留目前可用的 GitHub URL，避免指向尚未建立的 repository。預定名稱為 `LukeStackLab/db-semantic-mcp`；具備 Admin 權限後才能完成遠端改名及 URL 同步。
+GitHub 登入帳號 `lukedev999-boom` 對 `LukeStackLab/sqlserver-semantic-mcp` 有 Push 權限，但沒有 Admin 權限。當時改名 API 回傳 HTTP 404，遠端改名未完成。因此 `origin`、README 與套件 metadata 暫時保留目前可用的 GitHub URL，避免指向尚未建立的 repository。預定名稱為 `LukeStackLab/db-semantic-mcp`；具備 Admin 權限後才能完成遠端改名及 URL 同步。
 
 舊版 migration 識別字與歷史設計紀錄保留原名，以維持升級相容性。
+
+後續使用者已在 GitHub 人工完成改名。已透過 GitHub API 確認正式名稱為 `LukeStackLab/db-semantic-mcp`，並同步本機 `origin`、三份 README 與 `pyproject.toml` 的專案連結。前述權限阻礙已解除；未執行 Git Push。

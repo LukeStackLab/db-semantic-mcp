@@ -13,7 +13,7 @@
 先安裝 [uv](https://docs.astral.sh/uv/getting-started/installation/)，再執行：
 
 ```bash
-git clone https://github.com/LukeStackLab/sqlserver-semantic-mcp.git db-semantic-mcp
+git clone https://github.com/LukeStackLab/db-semantic-mcp.git db-semantic-mcp
 cd db-semantic-mcp
 # 僅 SQL Server，不需 Oracle driver 或 Oracle Client
 uv tool install --python 3.11 --reinstall .
@@ -148,4 +148,4 @@ uv build
 
 用兩個隔離容器建立 SQL Server／Oracle 與模擬資料，並執行實際 MCP 查詢。第二個 Oracle 僅供 DB link 選配；Thin／Thick 共用同一 Oracle。啟動、私有 profile、sample SQL 與資料清除指令見 [本機 Docker 示範環境](docs/local-docker.md)。
 
-[問題回報](https://github.com/LukeStackLab/sqlserver-semantic-mcp/issues) · [MIT License](LICENSE)
+[問題回報](https://github.com/LukeStackLab/db-semantic-mcp/issues) · [MIT License](LICENSE)

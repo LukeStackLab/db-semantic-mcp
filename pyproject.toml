@@ -47,10 +47,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LukeStackLab/sqlserver-semantic-mcp"
-Repository = "https://github.com/LukeStackLab/sqlserver-semantic-mcp"
-Issues = "https://github.com/LukeStackLab/sqlserver-semantic-mcp/issues"
-Documentation = "https://github.com/LukeStackLab/sqlserver-semantic-mcp#readme"
+Homepage = "https://github.com/LukeStackLab/db-semantic-mcp"
+Repository = "https://github.com/LukeStackLab/db-semantic-mcp"
+Issues = "https://github.com/LukeStackLab/db-semantic-mcp/issues"
+Documentation = "https://github.com/LukeStackLab/db-semantic-mcp#readme"
 
 [project.optional-dependencies]
 oracle = ["oracledb>=3.4,<27"]

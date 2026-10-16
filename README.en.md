@@ -11,7 +11,7 @@ Compatibility targets: SQL Server 2017+, Oracle 19c+, Python 3.11+. The actual l
 Product/CLI/MCP name: `db-semantic-mcp`. Python module: `db_semantic_mcp`. Distribution: **`lukestack-db-semantic-mcp`**. This release has not been published to PyPI. The generic PyPI name belongs to another project. The GitHub repository keeps its current URL.
 
 ```bash
-git clone https://github.com/LukeStackLab/sqlserver-semantic-mcp.git db-semantic-mcp
+git clone https://github.com/LukeStackLab/db-semantic-mcp.git db-semantic-mcp
 cd db-semantic-mcp
 # SQL Server only; Oracle driver/client are unnecessary
 uv tool install --python 3.11 --reinstall .
@@ -146,4 +146,4 @@ Live tests skip without explicit disposable opt-in. See [portable fixtures and c
 
 Create isolated SQL Server and Oracle databases with sample data and run actual MCP checks. An optional second Oracle exercises DB links; Thin and Thick share the same Oracle server. See the [local Docker guide](docs/local-docker.md) for commands, private profiles, sample SQL, and explicit data cleanup.
 
-[Issues](https://github.com/LukeStackLab/sqlserver-semantic-mcp/issues) · [MIT License](LICENSE)
+[Issues](https://github.com/LukeStackLab/db-semantic-mcp/issues) · [MIT License](LICENSE)
