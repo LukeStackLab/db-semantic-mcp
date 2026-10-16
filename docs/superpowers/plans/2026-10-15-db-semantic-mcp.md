@@ -111,3 +111,10 @@
 - [x] Up/init/check/down commands must only manage owned demo resources. Refuse collisions or unknown infrastructure; repeated execution must not blindly drop or overwrite databases. Down is explicit and bounded to owned labeled resources; data deletion must be separately explicit. Preserve user SQL Server1433 and all other resources.
 - [x] Validate with real Docker and actual MCP child: SQL Server scalar/data/catalog, Oracle Thin scalar/data/synonym/precision, optional remote native query/source policy. Exercise Thick against the same Oracle when private existing official client is available; no separate Thick database container. Keep profiles private and runtime state outside the SDD workspace so user can reuse the requested environment.
 - [x] Document simple commands, sample dataset, Thin/Thick distinction, stop/data cleanup behavior and observed test results. Include exact final focused/full/build checks justified by changes; commit only Task6 changes.
+
+
+## Final acceptance
+
+- [x] Whole-branch review completed; I1 implicit Oracle code, I2 env cache identity and M1 documentation addressed in one consolidated wave and scoped re-review.
+- [x] Final runtime validated: 935 passed / 14 explicit live skips, native negative proofs, cache isolation/reuse, three actual demo profiles, clean-wheel base/Thin/Thick, lint/format/lock/build.
+- [x] Public acceptance/validation/decision records preserve results and limitations; old owned four-container proof environment cleaned, new user demo retained and checked afterward.
