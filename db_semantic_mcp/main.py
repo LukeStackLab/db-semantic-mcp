@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import logging
 import sys
 from pathlib import Path
@@ -87,6 +88,9 @@ async def _run() -> None:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        from .server.source_context import shutdown_source_contexts
+
+        await shutdown_source_contexts()
         await shutdown_db_workers()
 
 
@@ -107,8 +111,22 @@ def main(argv: list[str] | None = None) -> None:
     for name, help_text in [("serve", "啟動固定配置的 MCP"), ("doctor", "檢查配置、連線與 MCP 握手")]:
         command = commands.add_parser(name, help=help_text)
         command.add_argument("--config", type=Path, required=name == "doctor", help="獨立連線 JSON 配置")
+    migration = commands.add_parser("migrate", help="預覽舊版 v1 配置遷移；--apply 才套用")
+    migration.add_argument("--legacy-root", type=Path, help="舊 connections 根目錄或單一配置目錄")
+    migration.add_argument("--config-dir", type=Path, help="新的 connections 根目錄")
+    action = migration.add_mutually_exclusive_group()
+    action.add_argument("--apply", action="store_true", help="明確套用遷移並驗證 MCP")
+    action.add_argument("--dry-run", action="store_true", help="只預覽、不讀取憑證、不寫入；預設行為")
+    migration.add_argument("--client", choices=["codex", "claude-code", "claude-desktop", "cursor"])
+    migration.add_argument("--client-config", type=Path)
+    migration.add_argument("--client-path", action="append", help="額外 Client 路徑 CLIENT=PATH，可重複")
     args = parser.parse_args(argv)
     try:
+        if args.command == "migrate":
+            from .setup.migration import cli_migrate
+
+            cli_migrate(args)
+            return
         if args.command == "setup":
             from .setup.wizard import terminal_setup
 
@@ -131,7 +149,12 @@ def main(argv: list[str] | None = None) -> None:
                 result = check_connection(cfg)
                 count = check_mcp(args.config)
                 print(
-                    f"配置 {cfg.connection_name}：連線成功；可見 {result['visible_tables']} 張表；MCP 握手成功，{count} 個工具。"
+                    json.dumps(
+                        {"connection": cfg.connection_name, **result, "mcp_tools": count},
+                        ensure_ascii=False,
+                        default=str,
+                        indent=2,
+                    )
                 )
                 return
         asyncio.run(_run())

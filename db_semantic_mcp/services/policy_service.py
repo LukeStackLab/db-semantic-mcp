@@ -28,6 +28,9 @@ class PolicyService:
         )
 
     def load(self) -> None:
+        if self._cfg._policy_snapshot is not None:
+            self._policy = self._cfg._policy_snapshot.model_copy(deep=True)
+            return
         if not self._cfg.connection_name:
             self._policy = load_active_policy(self._cfg)
             return

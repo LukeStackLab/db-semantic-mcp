@@ -132,9 +132,14 @@ async def discover_relevant_tables(
     if keyword:
         tokens.extend(_tokenize(keyword))
     tokens = list(dict.fromkeys(tokens))
+    documents = (
+        await metadata_service.search_documents(cfg.cache_path, cfg.database, policy=policy)
+        if cfg.database_type == "oracle"
+        else await _documents(cfg)
+    )
     tables = [
         doc
-        for doc in await _documents(cfg)
+        for doc in documents
         if (not schemas or doc["schema_name"] in schemas)
         and policy.object_allowed(doc["schema_name"], doc["table_name"], cfg.database)
     ]
@@ -156,6 +161,13 @@ async def discover_relevant_tables(
         if score <= 0:
             continue
         row = {"table": f"{table['schema_name']}.{table['table_name']}", "score": round(score, 3), "why": reasons}
+        if cfg.database_type == "oracle":
+            from ..services.oracle_metadata import qualified
+
+            row["table"] = qualified(table["schema_name"], table["table_name"])
+            row.update(
+                {key: table[key] for key in ("chain", "target", "canonical_source", "query_reference") if key in table}
+            )
         scored.append((row, table))
     scored.sort(key=lambda item: (item[0]["table"].casefold() not in tokens, -item[0]["score"], item[0]["table"]))
     top = scored[:limit]

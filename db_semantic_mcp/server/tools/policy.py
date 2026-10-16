@@ -23,6 +23,20 @@ async def _get_policy(args: dict) -> dict:
     ctx = get_context()
     if args.get("reload"):
         ctx.policy.reload()
+    sources = [{"id": "local", "database_type": ctx.cfg.database_type}]
+    policy = ctx.policy.current_policy()
+    if policy.operations.select:
+        sources.extend(
+            {
+                "id": name,
+                "db_link": route.db_link,
+                "readonly": route.readonly,
+                "query_hint": 'Use native "OWNER"."OBJECT"@' + route.db_link,
+            }
+            for name, route in ctx.cfg.sources.items()
+            if name in policy.scope.sources and policy.scope.sources[name].operations.select
+        )
+    if args.get("reload"):
         pol = ctx.policy.current_policy()
-        return {"reloaded": True, "profile": pol.profile_name, **pol.model_dump()}
-    return ctx.policy.current_policy().model_dump()
+        return {"reloaded": True, "profile": pol.profile_name, **pol.model_dump(), "available_sources": sources}
+    return {**ctx.policy.current_policy().model_dump(), "available_sources": sources}

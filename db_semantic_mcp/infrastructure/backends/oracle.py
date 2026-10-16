@@ -1,7 +1,6 @@
 """Oracle driver handling; mode is process-wide and never changed implicitly."""
 
 import importlib
-import os
 import threading
 from decimal import Decimal
 
@@ -98,20 +97,10 @@ class OracleBackend:
         if options is None:
             raise ValueError("Oracle options are required")
         _configure_mode(driver, options)
-        params = {
-            "tcp_connect_timeout": options.connect_timeout,
-            "config_dir": options.config_dir,
-        }
-        if options.dsn is None:
-            params.update(host=cfg.server, port=cfg.port, service_name=options.service_name, sid=options.sid)
-        if options.wallet_location:
-            params["wallet_location"] = options.wallet_location
-        if options.wallet_password_env:
-            password = os.environ.get(options.wallet_password_env)
-            if password is None:
-                raise ValueError("Oracle wallet password reference is unavailable")
-            params["wallet_password"] = password
-        connection = driver.connect(user=cfg.user, password=cfg.password, dsn=options.dsn, **params)
+        from .oracle_transport import connection_params
+
+        params = connection_params(driver, cfg)
+        connection = driver.connect(user=cfg.user, password=cfg.password, params=params)
         try:
             connection.autocommit = False
             # Oracle call_timeout bounds one network round trip, not total execution time.
@@ -194,6 +183,8 @@ class OracleBackend:
             "database_type": "oracle",
             "source": cfg.source_id,
             "driver_mode": cfg.oracle.driver_mode,
+            "transport_required": "tcps" if cfg.encrypt else "tcp",
+            "remote_transport": "DB-link transport is managed by the database; not verified end-to-end TLS",
             "inventory_scope": "Application schemas (ORACLE_MAINTAINED=N); explicit policy.allowed_schemas overrides",
             "definitions": True,
             "dependencies": True,

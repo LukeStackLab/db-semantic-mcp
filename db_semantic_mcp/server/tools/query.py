@@ -15,7 +15,7 @@ def register() -> None:
         Tool(
             name="plan_or_execute_query",
             description=(
-                "Run policy-approved T-SQL. auto/execute_if_safe execute; validate/dry_run inspect only. "
+                "Run policy-approved native SQL for the configured database. auto/execute_if_safe execute; validate/dry_run inspect only. "
                 "SELECT output is capped; check truncated."
             ),
             inputSchema={
@@ -42,7 +42,10 @@ def register() -> None:
 
 
 def _required_query() -> dict:
-    return {"type": "string", "description": "T-SQL statement."}
+    return {
+        "type": "string",
+        "description": "Native T-SQL or Oracle SQL. SQL is never translated or automatically routed.",
+    }
 
 
 async def _plan_or_execute(args: dict) -> dict:

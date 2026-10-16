@@ -104,6 +104,13 @@ def test_profile_v2_and_env_isolation(tmp_path, monkeypatch):
 def fake_driver(monkeypatch):
     driver = MagicMock()
     driver.is_thin_mode.return_value = True
+
+    def params(**kwargs):
+        value = MagicMock(**kwargs)
+        value.protocol = kwargs.get("protocol", "tcp")
+        return value
+
+    driver.ConnectParams.side_effect = params
     monkeypatch.setattr(oracle, "_driver", lambda: driver)
     monkeypatch.setattr(oracle, "_thick_options", None)
     return driver
@@ -113,7 +120,7 @@ def test_thin_connect_timeout_decimal_and_current_schema(fake_driver):
     cfg = oracle_config(oracle={"service_name": "service", "current_schema": "app", "connect_timeout": 3})
     conn = backend_for(cfg).connect(cfg)
     fake_driver.enable_thin_mode.assert_called_once()
-    kwargs = fake_driver.connect.call_args.kwargs
+    kwargs = fake_driver.ConnectParams.call_args.kwargs
     assert kwargs["tcp_connect_timeout"] == 3 and kwargs["service_name"] == "service"
     assert kwargs["host"] == "host" and kwargs["port"] == 1521
     assert conn.call_timeout == 30000 and conn.autocommit is False
@@ -143,7 +150,7 @@ def test_wallet_reference_and_connection_cleanup(fake_driver, monkeypatch):
         backend_for(cfg).connect(cfg)
     monkeypatch.setenv("ORA_WALLET_TEST", "private")
     backend_for(cfg).connect(cfg)
-    assert fake_driver.connect.call_args.kwargs["wallet_password"] == "private"
+    assert fake_driver.ConnectParams.call_args.kwargs["wallet_password"] == "private"
     assert "private" not in cfg.model_dump_json()
 
 

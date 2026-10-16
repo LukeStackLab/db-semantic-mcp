@@ -54,9 +54,18 @@ def _backend():
 
 def store_password(password: str) -> CredentialReference:
     key = uuid4().hex
+    backend = None
     try:
-        _backend().set_password(SERVICE, key, password)
+        backend = _backend()
+        backend.set_password(SERVICE, key, password)
     except Exception:  # noqa: BLE001 (keyring access is best-effort)
+        # A backend may store successfully and then fail acknowledgement. This
+        # UUID belongs only to this attempt, so clean it without touching old refs.
+        if backend is not None:
+            try:
+                backend.delete_password(SERVICE, key)
+            except Exception:  # noqa: BLE001 (best-effort cleanup of our new UUID)
+                pass
         raise CredentialError("無法將密碼存入系統憑證庫。") from None
     return CredentialReference(storage="keyring", key=key)
 

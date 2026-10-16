@@ -148,7 +148,8 @@ async def test_mcp_memory_transport_validates_structured_results(cfg):
                 listed = await client.list_tools()
                 assert all(tool.outputSchema["type"] == "object" for tool in listed.tools)
                 result = await client.call_tool("get_tables", {})
-                assert result.structuredContent == {"data": [{"table": "dbo.Public"}]}
+                assert result.structuredContent["data"] == [{"table": "dbo.Public"}]
+                assert result.structuredContent["source"]["id"] == "local"
                 assert result.isError is False
                 failed = await client.call_tool("fail", {})
                 assert failed.isError is True

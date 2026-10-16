@@ -26,11 +26,25 @@ _STATES: dict[tuple[str, str], _ProbeState] = {}
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
+def _trim_states() -> None:
+    # Retargeted sources get new namespaces. Keep diagnostics bounded without
+    # evicting a running single-flight operation.
+    for key in list(_STATES)[:-1]:
+        if len(_STATES) <= 256:
+            break
+        state = _STATES[key]
+        if state.task is None or state.task.done():
+            _STATES.pop(key, None)
+
+
 def _state(cfg: Config) -> _ProbeState:
     key = (cfg.cache_path, cfg.database)
     if key not in _STATES:
         _STATES[key] = _ProbeState()
-    return _STATES[key]
+    value = _STATES.pop(key)
+    _STATES[key] = value
+    _trim_states()
+    return value
 
 
 def reset_state() -> None:
@@ -156,6 +170,7 @@ def _track_task(state: _ProbeState, task: asyncio.Task, *, manual: bool = False)
             state.manual = False
         if not done.cancelled():
             done.exception()
+        _trim_states()
 
     task.add_done_callback(finished)
     return task

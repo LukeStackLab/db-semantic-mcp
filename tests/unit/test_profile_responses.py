@@ -36,7 +36,11 @@ async def test_tool_result_identifies_source_and_keeps_false_status(cfg, monkeyp
 
     monkeypatch.setitem(mod._TOOL_REGISTRY, tool.name, (tool, handler))
     result = json.loads((await mod._call_tool(tool.name, {}))[0].text)
-    assert result["source"] == {"connection": "erp", "database": "ERP"}
+    assert {key: result["source"][key] for key in ("connection", "database")} == {
+        "connection": "erp",
+        "database": "ERP",
+    }
+    assert result["source"]["database_type"] == "sqlserver" and result["source"]["id"] == "local"
     assert result["executed"] is False
     assert result["allowed"] is False
 

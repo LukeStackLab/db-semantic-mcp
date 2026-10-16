@@ -106,6 +106,7 @@ class Draft:
     original: dict[Path, bytes | None]
     previous: ConnectionProfile | None = None
     original_identities: dict[Path, tuple[int, int] | None] = field(default_factory=dict)
+    source_scopes: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -158,9 +159,21 @@ class Applied:
 
 
 def _gather_connection(name, previous, directory, input_fn, password_fn, *, readonly=None):
-    server = _ask(input_fn, "SQL Server 主機", previous.server if previous else "")
-    port = _port(input_fn, previous.port if previous else 1433)
-    database = _ask(input_fn, "資料庫名稱", previous.database if previous else "")
+    provider = previous.database_type if previous else None
+    while provider is None:
+        choice = _ask(input_fn, "資料庫類型（sqlserver/oracle）", "sqlserver").lower()
+        if choice in {"sqlserver", "oracle"}:
+            provider = choice
+    if provider == "oracle":
+        from .oracle_wizard import gather_options
+
+        provider_fields = gather_options(previous, input_fn)
+        server, port, database = (provider_fields[key] for key in ("server", "port", "database"))
+    else:
+        provider_fields = {"database_type": "sqlserver"}
+        server = _ask(input_fn, "SQL Server 主機", previous.server if previous else "")
+        port = _port(input_fn, previous.port if previous else 1433)
+        database = _ask(input_fn, "資料庫名稱", previous.database if previous else "")
     user = _ask(input_fn, "帳號", previous.user if previous else "")
     password = password_fn("密碼" + (" [Enter 沿用]" if previous and previous.credential else "") + "：")
     if not password and previous and previous.credential:
@@ -174,6 +187,7 @@ def _gather_connection(name, previous, directory, input_fn, password_fn, *, read
             default=previous is not None and not previous.readonly,
         )
     fields = previous.model_dump() if previous else {}
+    fields.update(provider_fields)
     fields.update(
         name=name,
         server=server,
@@ -204,6 +218,10 @@ def _apply(draft: Draft, input_fn, emit) -> Applied:
             previous_database=draft.previous.database if draft.previous else None,
             previous_readonly=draft.previous.readonly if draft.previous else None,
         )
+        if draft.source_scopes:
+            from .oracle_wizard import merge_source_policy
+
+            policy_data = merge_source_policy(policy_data, draft.source_scopes)
         try:
             reference = store_password(draft.password)
         except CredentialError:
@@ -232,6 +250,12 @@ def _apply(draft: Draft, input_fn, emit) -> Applied:
             written[path] = data
             receipts[path] = {}
             atomic_write(path, data, expected=draft.original[path], backup=True, receipt=receipts[path])
+        if profile.database_type == "oracle":
+            from ..profiles import load_profile
+
+            diagnostics = check_connection(load_profile(directory / "connection.json"))
+            if any(item.get("status") != "ok" for item in diagnostics.get("sources", {}).values()):
+                raise SetupError("已選 Oracle 來源無法通過 policy、route 或 catalog 檢查。")
         applied = Applied(draft, reference, written, receipts)
         emit(f"正在驗證 {profile.name} 的 MCP 啟動與握手……")
         applied.tools = check_mcp(directory / "connection.json")
@@ -303,13 +327,23 @@ def _collect_connection(name, previous, directory, input_fn, password_fn, emit, 
     while True:
         emit("正在測試登入與 metadata 存取……")
         try:
-            result = check_connection(config_for_profile(profile, directory, password))
+            policy_path = directory / "policy.json"
+            probe_cfg = config_for_profile(
+                profile, directory, password, policy_path=policy_path if policy_path.exists() else None
+            )
+            if profile.database_type == "oracle":
+                # This is a read-only preflight before policy files exist (or
+                # before an explicitly changed readonly mode is applied).
+                # The final fixed profile is checked again after atomic writes.
+                probe_cfg.connection_name = None
+                probe_cfg.policy_profile = None
+            result = check_connection(probe_cfg)
             emit(f"連線成功，可見 {result['visible_tables']} 張資料表。")
-            return profile, password
+            return profile, password, result
         except SetupError as exc:
             emit(str(exc))
             if not _confirm(input_fn, "重新輸入這組連線資訊？", default=True):
-                return None, None
+                return None, None, {}
             profile, password = _gather_connection(
                 name,
                 profile,
@@ -349,7 +383,7 @@ def _collect_drafts(root, target, original_client, input_fn, password_fn, emit, 
         }
         original = {path: snapshot[0] for path, snapshot in snapshots.items()}
         original_identities = {path: snapshot[1] for path, snapshot in snapshots.items()}
-        profile, password = _collect_connection(
+        profile, password, diagnostics = _collect_connection(
             name,
             previous,
             directory,
@@ -360,7 +394,18 @@ def _collect_drafts(root, target, original_client, input_fn, password_fn, emit, 
         )
         if profile is not None:
             emit(f"{name}：{'唯讀' if profile.readonly else '受限寫入'}，輸出上限 {profile.max_response_bytes} bytes。")
-            drafts.append(Draft(profile, password, directory, original, previous, original_identities))
+            source_scopes = {}
+            if profile.database_type == "oracle":
+                from .oracle_wizard import select_sources
+
+                emit(
+                    f"Oracle {diagnostics.get('version', 'unknown')}；{diagnostics.get('driver_mode', profile.oracle.driver_mode)}；傳輸 {diagnostics.get('transport', 'unknown')}"
+                )
+                emit(str(diagnostics.get("capabilities", {}).get("temporal_values", "")))
+                profile, source_scopes = select_sources(
+                    profile, diagnostics.get("available_db_links", []), input_fn, emit
+                )
+            drafts.append(Draft(profile, password, directory, original, previous, original_identities, source_scopes))
         if not _confirm(input_fn, "再新增一組連線？"):
             break
     return drafts
@@ -395,7 +440,7 @@ def run_setup(
     applied: list[Applied] = []
     registered = False
     try:
-        emit("SQL Server MCP 安裝精靈：每組配置使用獨立程序、policy 與快取。")
+        emit("DB Semantic MCP 安裝精靈：每組配置使用獨立程序、policy 與快取。")
         target = _select_client(client, client_config, input_fn, emit)
         original_client = read_snapshot(target.path)
         parse_client(target, original_client)

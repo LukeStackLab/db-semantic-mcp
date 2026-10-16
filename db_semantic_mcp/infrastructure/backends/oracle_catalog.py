@@ -50,7 +50,7 @@ def resolve_db_link(cfg: Config, conn) -> dict | None:
         raise ValueError("Source does not match a configured DB link")
     rows = _fetch(
         conn,
-        "SELECT owner, db_link, username, host FROM all_db_links "
+        "SELECT owner, db_link, username, host FROM sys.all_db_links "
         "WHERE owner IN (USER, 'PUBLIC') AND (db_link = :link OR db_link LIKE :prefix ESCAPE '\\')",
         {"link": route.db_link, "prefix": route.db_link.replace("_", "\\_") + ".%"},
     )
@@ -64,7 +64,7 @@ def resolve_db_link(cfg: Config, conn) -> dict | None:
     if not _LINK.fullmatch(selected[1]):
         raise ValueError("Catalog DB link has an unsupported identifier")
     try:
-        principals = _fetch(conn, f"SELECT username FROM user_users@{selected[1]}")
+        principals = _fetch(conn, f"SELECT username FROM sys.user_users@{selected[1]}")
     except Exception:  # noqa: BLE001 (never expose remote driver authentication details)
         raise UnsupportedMetadataError("Cannot establish remote DB link principal") from None
     if len(principals) != 1 or len(principals[0]) != 1 or not isinstance(principals[0][0], str) or not principals[0][0]:
@@ -85,7 +85,7 @@ def current_schema(cfg: Config, conn=None) -> str:
         if link:
             # Default remote object owner. Local SYS_CONTEXT does not identify the remote session.
             return link["remote_user"]
-        return _fetch(connection, "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual")[0][0]
+        return _fetch(connection, "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM sys.dual")[0][0]
 
 
 def native_type(data_type, precision, scale, char_length, char_used):
@@ -111,12 +111,44 @@ def _inventory_scope(cfg, suffix):
     if scope.allowed_schemas:
         from ...policy.intents.oracle_analyzer import oracle_identifier
 
-        params = {f"schema_{i}": oracle_identifier(value) for i, value in enumerate(scope.allowed_schemas)}
-        owners = ",".join(":" + key for key in params)
+        # PUBLIC is an alias namespace, not a request to scan every system
+        # synonym. Public candidates below are bounded by their target owners.
+        selected = [oracle_identifier(value) for value in scope.allowed_schemas]
+        selected = [value for value in selected if value != "PUBLIC"]
+        params = {f"schema_{i}": value for i, value in enumerate(selected)}
+        owners = (
+            ",".join(":" + key for key in params)
+            if params
+            else f"SELECT username FROM sys.all_users{suffix} WHERE oracle_maintained='N'"
+        )
     else:
         params = {}
-        owners = f"SELECT username FROM all_users{suffix} WHERE oracle_maintained='N'"
+        owners = f"SELECT username FROM sys.all_users{suffix} WHERE oracle_maintained='N'"
     return owners, params
+
+
+def _public_candidates(cfg, owners, params):
+    """Bound PUBLIC aliases to app owners or explicitly enabled remote routes.
+
+    Only a candidate filter, never authorization. Do not probe/warm every remote
+    source while enumerating the local inventory; resolution proves each used
+    route and target live later.
+    """
+    from ...services.policy_service import PolicyService
+
+    policy = PolicyService(cfg).current_policy()
+    clauses = [f"table_owner IN ({owners})"]
+    bindings = dict(params)
+    if cfg.source_id == "local" and policy.operations.select:
+        for index, (name, route) in enumerate(cfg.sources.items()):
+            scope = policy.scope.sources.get(name)
+            if scope is None or not scope.operations.select:
+                continue
+            key = f"public_link_{index}"
+            bindings[key] = route.db_link
+            bindings[key + "_prefix"] = route.db_link.replace("_", "\\_") + ".%"
+            clauses.append(f"(db_link=:{key} OR db_link LIKE :{key}_prefix ESCAPE '\\')")
+    return "(" + " OR ".join(clauses) + ")", bindings
 
 
 def fetch_snapshot(cfg: Config, conn=None):
@@ -127,13 +159,13 @@ def fetch_snapshot(cfg: Config, conn=None):
         owners, params = _inventory_scope(cfg, s)
         tables = _fetch(
             connection,
-            f"SELECT owner, table_name FROM all_tables{s} WHERE owner IN ({owners}) ORDER BY owner, table_name",
+            f"SELECT owner, table_name FROM sys.all_tables{s} WHERE owner IN ({owners}) ORDER BY owner, table_name",
             params,
         )
         raw_columns = _fetch(
             connection,
             f"SELECT owner, table_name, column_name, data_type, data_length, nullable, data_default, "
-            f"column_id, data_precision, data_scale, char_length, char_used FROM all_tab_columns{s} "
+            f"column_id, data_precision, data_scale, char_length, char_used FROM sys.all_tab_columns{s} "
             f"WHERE owner IN ({owners}) ORDER BY owner, table_name, column_id",
             params,
         )
@@ -170,8 +202,8 @@ def fetch_snapshot(cfg: Config, conn=None):
             )
         primary_keys = _fetch(
             connection,
-            f"SELECT c.owner, c.table_name, k.column_name FROM all_constraints{s} c "
-            f"JOIN all_cons_columns{s} k ON k.owner=c.owner AND k.constraint_name=c.constraint_name "
+            f"SELECT c.owner, c.table_name, k.column_name FROM sys.all_constraints{s} c "
+            f"JOIN sys.all_cons_columns{s} k ON k.owner=c.owner AND k.constraint_name=c.constraint_name "
             "WHERE c.constraint_type='P' AND c.status='ENABLED' AND c.validated='VALIDATED' "
             f"AND c.deferrable='NOT DEFERRABLE' AND c.owner IN ({owners}) ORDER BY c.owner,c.table_name,k.position",
             params,
@@ -183,10 +215,10 @@ def fetch_snapshot(cfg: Config, conn=None):
             "CASE WHEN c.status='ENABLED' THEN 0 ELSE 1 END, "
             "CASE WHEN c.validated='VALIDATED' AND c.deferrable='NOT DEFERRABLE' "
             "AND r.status='ENABLED' AND r.validated='VALIDATED' AND r.deferrable='NOT DEFERRABLE' THEN 0 ELSE 1 END "
-            f"FROM all_constraints{s} c JOIN all_cons_columns{s} k "
+            f"FROM sys.all_constraints{s} c JOIN sys.all_cons_columns{s} k "
             "ON k.owner=c.owner AND k.constraint_name=c.constraint_name "
-            f"JOIN all_constraints{s} r ON r.owner=c.r_owner AND r.constraint_name=c.r_constraint_name "
-            f"JOIN all_cons_columns{s} rk ON rk.owner=r.owner AND rk.constraint_name=r.constraint_name "
+            f"JOIN sys.all_constraints{s} r ON r.owner=c.r_owner AND r.constraint_name=c.r_constraint_name "
+            f"JOIN sys.all_cons_columns{s} rk ON rk.owner=r.owner AND rk.constraint_name=r.constraint_name "
             "AND rk.position=k.position WHERE c.constraint_type='R' "
             f"AND c.owner IN ({owners}) ORDER BY c.owner,c.table_name,c.constraint_name,k.position",
             params,
@@ -195,8 +227,8 @@ def fetch_snapshot(cfg: Config, conn=None):
             connection,
             "SELECT i.table_owner,i.table_name,i.index_name,i.uniqueness,i.status,i.index_type,"
             "k.column_name,k.column_position,c.constraint_type,c.status,c.validated,c.deferrable "
-            f"FROM all_indexes{s} i JOIN all_ind_columns{s} k ON k.index_owner=i.owner AND k.index_name=i.index_name "
-            f"LEFT JOIN all_constraints{s} c ON c.index_owner=i.owner AND c.index_name=i.index_name "
+            f"FROM sys.all_indexes{s} i JOIN sys.all_ind_columns{s} k ON k.index_owner=i.owner AND k.index_name=i.index_name "
+            f"LEFT JOIN sys.all_constraints{s} c ON c.index_owner=i.owner AND c.index_name=i.index_name "
             f"AND c.constraint_type IN ('P','U') WHERE i.table_owner IN ({owners}) ORDER BY i.table_owner,i.table_name,i.index_name,k.column_position",
             params,
         )
@@ -226,18 +258,19 @@ def fetch_snapshot(cfg: Config, conn=None):
                     int(not trusted),
                 )
             )
+        public_where, public_params = _public_candidates(cfg, owners, params)
         objects = _fetch(
             connection,
-            f"SELECT DISTINCT owner,object_name,object_type FROM all_objects{s} "
+            f"SELECT DISTINCT owner,object_name,object_type FROM sys.all_objects{s} "
             "WHERE object_type IN ('TABLE','VIEW','MATERIALIZED VIEW','PROCEDURE','FUNCTION','PACKAGE','PACKAGE BODY','SYNONYM') "
-            f"AND owner IN ({owners}) UNION SELECT owner,synonym_name,'SYNONYM' FROM all_synonyms{s} "
-            f"WHERE owner='PUBLIC' AND table_owner IN ({owners}) ORDER BY 1,2,3",
-            params,
+            f"AND owner IN ({owners}) UNION SELECT owner,synonym_name,'SYNONYM' FROM sys.all_synonyms{s} "
+            f"WHERE owner='PUBLIC' AND {public_where} ORDER BY 1,2,3",
+            public_params,
         )
         comments = _fetch(
             connection,
-            f"SELECT owner,table_name,CAST(NULL AS VARCHAR2(128)),comments FROM all_tab_comments{s} WHERE comments IS NOT NULL AND owner IN ({owners}) "
-            f"UNION ALL SELECT owner,table_name,column_name,comments FROM all_col_comments{s} WHERE comments IS NOT NULL AND owner IN ({owners})",
+            f"SELECT owner,table_name,CAST(NULL AS VARCHAR2(128)),comments FROM sys.all_tab_comments{s} WHERE comments IS NOT NULL AND owner IN ({owners}) "
+            f"UNION ALL SELECT owner,table_name,column_name,comments FROM sys.all_col_comments{s} WHERE comments IS NOT NULL AND owner IN ({owners})",
             params,
         )
         comments = [(o, t, c or "", text) for o, t, c, text in comments]
@@ -252,7 +285,7 @@ def get_object_definition(
         params = {"owner": schema, "name": name}
         if object_type is None:
             rows = _fetch(
-                conn, f"SELECT object_type FROM all_objects{s} WHERE owner=:owner AND object_name=:name", params
+                conn, f"SELECT object_type FROM sys.all_objects{s} WHERE owner=:owner AND object_name=:name", params
             )
             types = {r[0] for r in rows}
             if len(types) > 1:
@@ -263,13 +296,13 @@ def get_object_definition(
             catalog, field, key = (
                 ("all_views", "text", "view_name") if object_type == "VIEW" else ("all_mviews", "query", "mview_name")
             )
-            rows = _fetch(conn, f"SELECT {field} FROM {catalog}{s} WHERE owner=:owner AND {key}=:name", params)
+            rows = _fetch(conn, f"SELECT {field} FROM sys.{catalog}{s} WHERE owner=:owner AND {key}=:name", params)
             return rows[0][0] if rows else None
         if object_type in {"PROCEDURE", "FUNCTION", "PACKAGE", "PACKAGE BODY", "TYPE", "TYPE BODY", "TRIGGER"}:
             params["type"] = object_type
             rows = _fetch(
                 conn,
-                f"SELECT text FROM all_source{s} WHERE owner=:owner AND name=:name AND type=:type ORDER BY line",
+                f"SELECT text FROM sys.all_source{s} WHERE owner=:owner AND name=:name AND type=:type ORDER BY line",
                 params,
             )
             return "".join(r[0] or "" for r in rows) if rows else None
@@ -281,7 +314,7 @@ def get_object_dependencies(cfg: Config, schema: str, name: str, *, object_type=
         s = catalog_suffix(cfg, conn)
         return _fetch(
             conn,
-            f"SELECT referenced_owner,referenced_name,referenced_type,referenced_link_name FROM all_dependencies{s} "
+            f"SELECT referenced_owner,referenced_name,referenced_type,referenced_link_name FROM sys.all_dependencies{s} "
             "WHERE owner=:owner AND name=:name "
             + ("AND type=:type " if object_type else "")
             + "ORDER BY referenced_owner,referenced_name,referenced_type",
@@ -311,46 +344,47 @@ def fetch_fingerprints(cfg: Config, conn=None):
         definitions = defaultdict(list)
         for owner, name, kind, line, text in _fetch(
             connection,
-            f"SELECT owner,name,type,line,text FROM all_source{s} WHERE owner IN ({owners}) ORDER BY owner,name,type,line",
+            f"SELECT owner,name,type,line,text FROM sys.all_source{s} WHERE owner IN ({owners}) ORDER BY owner,name,type,line",
             params,
         ):
             definitions[(owner, name, kind)].append((line, text))
         for owner, name, text in _fetch(
-            connection, f"SELECT owner,view_name,text FROM all_views{s} WHERE owner IN ({owners})", params
+            connection, f"SELECT owner,view_name,text FROM sys.all_views{s} WHERE owner IN ({owners})", params
         ):
             definitions[(owner, name, "VIEW")].append(text)
         for owner, name, text in _fetch(
-            connection, f"SELECT owner,mview_name,query FROM all_mviews{s} WHERE owner IN ({owners})", params
+            connection, f"SELECT owner,mview_name,query FROM sys.all_mviews{s} WHERE owner IN ({owners})", params
         ):
             definitions[(owner, name, "MATERIALIZED VIEW")].append(text)
+        public_where, public_params = _public_candidates(cfg, owners, params)
         synonyms = _fetch(
             connection,
-            f"SELECT owner,synonym_name,table_owner,table_name,db_link FROM all_synonyms{s} "
-            f"WHERE owner IN ({owners}) OR (owner='PUBLIC' AND table_owner IN ({owners}))",
-            params,
+            f"SELECT owner,synonym_name,table_owner,table_name,db_link FROM sys.all_synonyms{s} "
+            f"WHERE owner IN ({owners}) OR (owner='PUBLIC' AND {public_where})",
+            public_params,
         )
         for owner, name, target_owner, target_name, link in synonyms:
             definitions[(owner, name, "SYNONYM")].append((target_owner, target_name, link))
         raw_constraints = _fetch(
             connection,
             f"SELECT owner,table_name,constraint_name,constraint_type,status,validated,deferrable,deferred,rely,search_condition "
-            f"FROM all_constraints{s} WHERE owner IN ({owners}) ORDER BY owner,table_name,constraint_name",
+            f"FROM sys.all_constraints{s} WHERE owner IN ({owners}) ORDER BY owner,table_name,constraint_name",
             params,
         )
         dependencies = _fetch(
             connection,
-            f"SELECT owner,name,type,referenced_owner,referenced_name,referenced_type,referenced_link_name FROM all_dependencies{s} WHERE owner IN ({owners})",
+            f"SELECT owner,name,type,referenced_owner,referenced_name,referenced_type,referenced_link_name FROM sys.all_dependencies{s} WHERE owner IN ({owners})",
             params,
         )
         raw_expressions = _fetch(
             connection,
-            f"SELECT table_owner,table_name,index_name,column_position,column_expression FROM all_ind_expressions{s} "
+            f"SELECT table_owner,table_name,index_name,column_position,column_expression FROM sys.all_ind_expressions{s} "
             f"WHERE table_owner IN ({owners})",
             params,
         )
         object_states = _fetch(
             connection,
-            f"SELECT owner,object_name,object_type,status,last_ddl_time FROM all_objects{s} WHERE owner IN ({owners})",
+            f"SELECT owner,object_name,object_type,status,last_ddl_time FROM sys.all_objects{s} WHERE owner IN ({owners})",
             params,
         )
         table_parts = {key: defaultdict(list) for key in snapshot.tables}

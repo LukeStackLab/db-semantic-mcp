@@ -1,5 +1,5 @@
 import json
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
 
 from mcp.types import Resource, ResourceTemplate
 from pydantic import AnyUrl
@@ -26,27 +26,27 @@ async def list_resources() -> list[Resource]:
 async def list_resource_templates() -> list[ResourceTemplate]:
     return [
         ResourceTemplate(
-            uriTemplate="semantic://schema/tables/{qualified}",
+            uriTemplate="semantic://schema/tables/{qualified}{?source}",
             name="Table metadata",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://analysis/classification/{qualified}",
+            uriTemplate="semantic://analysis/classification/{qualified}{?source}",
             name="Table classification",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://summary/table/{qualified}",
+            uriTemplate="semantic://summary/table/{qualified}{?source}",
             name="AI-ready table summary (join-focused)",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://summary/object/{type}/{qualified}",
+            uriTemplate="semantic://summary/object/{type}/{qualified}{?source}",
             name="AI-ready object summary (reads/writes/depends)",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://bundle/joining/{qualified}",
+            uriTemplate="semantic://bundle/joining/{qualified}{?source}",
             name="Joining bundle for a single table",
             mimeType="application/json",
         ),
@@ -56,7 +56,13 @@ async def list_resource_templates() -> list[ResourceTemplate]:
 def _split_qualified(qualified: str, uri: str) -> tuple[str, str]:
     from ...policy.scope import split_object_name
 
-    parts = split_object_name(unquote(qualified))
+    if get_context().cfg.database_type == "oracle":
+        from ...policy.intents.oracle_analyzer import oracle_scope_entry
+
+        ref = oracle_scope_entry(unquote(qualified))
+        parts = (ref.schema, ref.name)
+    else:
+        parts = split_object_name(unquote(qualified))
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError(f"Invalid resource URI '{uri}': expected schema.table format")
     return parts[0], parts[1]
@@ -64,6 +70,17 @@ def _split_qualified(qualified: str, uri: str) -> tuple[str, str]:
 
 @app.read_resource()
 async def read_resource(uri: AnyUrl) -> str:
+    from ..source_context import bind_source
+
+    parsed = urlsplit(str(uri))
+    query = parse_qs(parsed.query, strict_parsing=True, keep_blank_values=True)
+    if set(query) - {"source"} or len(query.get("source", [])) > 1:
+        raise ValueError("Invalid resource source selector")
+    async with bind_source(get_context(), query.get("source", ["local"])[0]):
+        return await _read_resource_bound(AnyUrl(urlunsplit(parsed._replace(query=""))))
+
+
+async def _read_resource_bound(uri: AnyUrl) -> str:
     payload = await _read_resource_payload(uri)
     cfg = get_context().cfg
     data = json.loads(payload)
@@ -77,10 +94,12 @@ async def read_resource(uri: AnyUrl) -> str:
             data["cache"] = revalidation.merge_cache_metadata(cfg, data.get("cache", {}), freshness)
         else:
             data = {"data": data, "cache": revalidation.merge_cache_metadata(cfg, {}, freshness)}
-    if cfg.connection_name:
+    if cfg.connection_name or cfg.database_type == "oracle":
+        from ..source_context import source_metadata
+
         return json.dumps(
             {
-                "source": {"connection": cfg.connection_name, "database": cfg.database},
+                "source": source_metadata(cfg),
                 "data": data,
             },
             ensure_ascii=False,
@@ -126,7 +145,7 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
         parts = qualified.split("/")
         if len(parts) != 2:
             raise ValueError(f"Invalid resource URI '{s}': expected <type>/<schema>.<name>")
-        obj_type = parts[0].upper()
+        obj_type = unquote(parts[0]).upper()
         schema, name = _split_qualified(parts[1], s)
         return json.dumps(
             await object_service.describe_object(schema, name, obj_type, ctx.cfg, policy=ctx.policy),
@@ -150,7 +169,7 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
         parts = rest.split("/", 1)
         if len(parts) != 2:
             raise ValueError(f"Invalid resource URI '{s}': expected <type>/<schema>.<name>")
-        obj_type = parts[0].upper()
+        obj_type = unquote(parts[0]).upper()
         schema, name = _split_qualified(parts[1], s)
         obj = await object_service.describe_object(
             schema,
@@ -168,7 +187,15 @@ async def _read_resource_payload(uri: AnyUrl) -> str:
             "depends_on": list((obj or {}).get("dependencies", []) or []),
             **{
                 key: obj[key]
-                for key in ("dependencies_omitted", "definition_withheld", "definition_omission_reason")
+                for key in (
+                    "dependencies_omitted",
+                    "definition_withheld",
+                    "definition_omission_reason",
+                    "io_completeness",
+                    "dependency_completeness",
+                    "resolution_chain",
+                    "resolved_target",
+                )
                 if obj and key in obj
             },
         }

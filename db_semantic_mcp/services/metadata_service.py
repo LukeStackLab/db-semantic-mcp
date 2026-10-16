@@ -74,6 +74,12 @@ async def list_tables(
     limit: int | None = None,
     policy: PolicyService | None = None,
 ) -> list[dict]:
+    if getattr(getattr(policy, "_cfg", None), "database_type", None) == "oracle":
+        from . import oracle_metadata
+
+        return await oracle_metadata.list_tables(
+            db_path, database, schemas=schemas, keyword=keyword, limit=limit, policy=policy
+        )
     sql = "SELECT schema_name,table_name FROM sc_tables WHERE database_name=?"
     params = [database]
     if schemas:
@@ -106,6 +112,10 @@ async def describe_table(
     columns: list[str] | None = None,
     policy: PolicyService | None = None,
 ) -> dict | None:
+    if getattr(getattr(policy, "_cfg", None), "database_type", None) == "oracle":
+        from . import oracle_metadata
+
+        return await oracle_metadata.describe_table(schema, table, columns=columns, policy=policy)
     _authorize(policy, database, schema, table)
     from .semantic_service import _classification_cache_allowed, _classification_for_structure
 
@@ -212,6 +222,10 @@ async def describe_table(
 
 async def search_documents(db_path: str, database: str, *, schemas=None, policy=None) -> list[dict]:
     """Read deterministic search documents in one connection, without external models."""
+    if getattr(getattr(policy, "_cfg", None), "database_type", None) == "oracle":
+        from . import oracle_metadata
+
+        return await oracle_metadata.search_documents(db_path, database, schemas=schemas, policy=policy)
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(

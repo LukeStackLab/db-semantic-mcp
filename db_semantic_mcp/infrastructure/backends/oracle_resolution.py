@@ -145,7 +145,7 @@ class OracleResolver:
         params = {"owner": owner, "name": ref.name}
         rows = catalog._fetch(
             self.conn,
-            f"SELECT object_type FROM all_objects{suffix} WHERE owner=:owner AND object_name=:name "
+            f"SELECT object_type FROM sys.all_objects{suffix} WHERE owner=:owner AND object_name=:name "
             "AND object_type IN ('TABLE','VIEW','MATERIALIZED VIEW','SYNONYM')",
             params,
         )
@@ -179,7 +179,7 @@ class OracleResolver:
             return current
         synonyms = catalog._fetch(
             self.conn,
-            f"SELECT table_owner, table_name, db_link FROM all_synonyms{suffix} "
+            f"SELECT table_owner, table_name, db_link FROM sys.all_synonyms{suffix} "
             "WHERE owner=:owner AND synonym_name=:name",
             params,
         )
@@ -189,7 +189,7 @@ class OracleResolver:
             key = (source, owner, ref.name)
             synonyms = catalog._fetch(
                 self.conn,
-                f"SELECT table_owner, table_name, db_link FROM all_synonyms{suffix} "
+                f"SELECT table_owner, table_name, db_link FROM sys.all_synonyms{suffix} "
                 "WHERE owner='PUBLIC' AND synonym_name=:name",
                 {"name": ref.name},
             )
@@ -206,7 +206,7 @@ class OracleResolver:
     def verify_columns(self, tree, *, default_schema="", source="local"):
         """Prove identifier expressions are columns, not bare PL/SQL calls.
 
-        SQLGlot cannot distinguish `SELECT evil FROM dual` from a column read.
+        SQLGlot cannot distinguish `SELECT evil FROM sys.dual` from a column read.
         Oracle can execute a zero-argument function there. Resolve columns from
         the live target catalog, then validate CTE/projection/alias scopes on an
         analysis-only tree. Never send its renamed tables to the driver.
@@ -236,7 +236,7 @@ class OracleResolver:
                 raise PermissionError("Unresolved Oracle column source")
             rows = catalog._fetch(
                 self.conn,
-                f"SELECT column_name FROM all_tab_columns{self._suffix(target.source)} "
+                f"SELECT column_name FROM sys.all_tab_columns{self._suffix(target.source)} "
                 "WHERE owner=:owner AND table_name=:name",
                 {"owner": target.schema, "name": target.name},
             )

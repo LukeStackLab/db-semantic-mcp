@@ -184,6 +184,16 @@ def _analyze_column_structure(struct: dict) -> list[dict]:
     return [{"column": c["column_name"], "semantic_type": _column_semantic(c) or "generic"} for c in struct["columns"]]
 
 
+def _oracle_policy(policy) -> bool:
+    return getattr(getattr(policy, "_cfg", None), "database_type", None) == "oracle"
+
+
+async def _oracle_structure(policy, schema, table):
+    from .oracle_metadata import describe_table
+
+    return await describe_table(schema, table, policy=policy)
+
+
 async def classify_table(
     db_path: str,
     database: str,
@@ -193,6 +203,11 @@ async def classify_table(
     force: bool = False,
     policy=None,
 ) -> dict:
+    if _oracle_policy(policy):
+        struct = await _oracle_structure(policy, schema, table)
+        # Live target metadata already filters FKs using its canonical source
+        # policy. Do not filter those targets again using the alias's scope.
+        return _classify(struct, table)
     if policy is not None:
         policy.authorize_object(schema, table, database)
     struct = await _load_table_structure(db_path, database, schema, table)
@@ -241,6 +256,8 @@ async def analyze_columns(
     *,
     policy=None,
 ) -> list[dict]:
+    if _oracle_policy(policy):
+        return _analyze_column_structure(await _oracle_structure(policy, schema, table))
     if _classification_cache_allowed(policy):
         await classify_table(db_path, database, schema, table, policy=policy)
     # Classification may have yielded to a reload and skipped persistence.
@@ -269,13 +286,18 @@ async def summarize_for_joining(
     """
     if policy is not None:
         policy.authorize_object(schema, table, database)
-    struct = await _load_table_structure(db_path, database, schema, table)
+    oracle = _oracle_policy(policy)
+    struct = (
+        await _oracle_structure(policy, schema, table)
+        if oracle
+        else await _load_table_structure(db_path, database, schema, table)
+    )
     if struct is None:
         return None
 
     from .relationship_service import group_foreign_keys
 
-    groups = group_foreign_keys(_authorized_structure(struct, database, policy)["foreign_keys"])
+    groups = group_foreign_keys(_authorized_structure(struct, database, None if oracle else policy)["foreign_keys"])
     join_candidates = []
     for fk in groups:
         candidate = {
@@ -293,15 +315,24 @@ async def summarize_for_joining(
         c["column_name"] for c in struct["columns"] if (_column_semantic(c) or "") in _COMMON_FILTER_SEMANTICS
     ]
 
-    classification = _classification_for_structure(struct, table, database, policy=policy)
+    classification = _classification_for_structure(struct, table, database, policy=None if oracle else policy)
 
-    return {
+    result = {
         "table": f"{schema}.{table}",
         "pk": struct["primary_key"],
         "classification": classification["type"],
         "join_candidates": join_candidates,
         "common_filter_columns": common_filter_columns,
     }
+    if oracle:
+        from .oracle_metadata import qualified
+
+        result["table"] = qualified(schema, table)
+        result.update({key: struct[key] for key in ("chain", "target", "canonical_source", "query_reference")})
+        for candidate, fk in zip(join_candidates, groups, strict=True):
+            candidate["to_table"] = qualified(fk["ref_schema"], fk["ref_table"])
+            candidate["source"] = struct["canonical_source"]
+    return result
 
 
 async def detect_lookup_tables(

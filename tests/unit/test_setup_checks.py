@@ -59,3 +59,42 @@ async def test_actual_mcp_subprocess_handshake_without_live_database(tmp_path, m
         ),
     )
     assert await checks._handshake(path, 10) == 12
+
+
+@pytest.mark.asyncio
+async def test_handshake_forwards_only_explicit_credential_and_wallet_references(tmp_path, monkeypatch):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("HANDSHAKE_LOGIN", "login-secret")
+    monkeypatch.setenv("HANDSHAKE_WALLET", "wallet-secret")
+    monkeypatch.setenv("UNRELATED_SECRET", "do-not-forward")
+    profile = ConnectionProfile(
+        name="oracle",
+        database_type="oracle",
+        server="host",
+        database="service",
+        user="reader",
+        encrypt=True,
+        oracle={"service_name": "service", "wallet_location": "/wallet", "wallet_password_env": "HANDSHAKE_WALLET"},
+        credential={"storage": "env", "key": "HANDSHAKE_LOGIN"},
+    )
+    path = tmp_path / "connection.json"
+    atomic_write(path, profile_bytes(profile))
+    seen = []
+
+    @asynccontextmanager
+    async def stdio(parameters, **kwargs):
+        seen.append(parameters.env)
+        yield None, None
+
+    @asynccontextmanager
+    async def session(*args):
+        yield SimpleNamespace(initialize=AsyncMock(), list_tools=AsyncMock(return_value=SimpleNamespace(tools=[1])))
+
+    monkeypatch.setattr(checks, "stdio_client", stdio)
+    monkeypatch.setattr(checks, "ClientSession", session)
+    assert await checks._handshake(path, 5) == 1
+    assert seen == [{"HANDSHAKE_LOGIN": "login-secret", "HANDSHAKE_WALLET": "wallet-secret"}]
+    assert "wallet-secret" not in path.read_text()

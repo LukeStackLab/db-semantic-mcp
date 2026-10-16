@@ -188,3 +188,65 @@ def test_inventory_scope_pushes_schema_binds_and_explains_system_default(monkeyp
     policy.scope.allowed_schemas = []
     owners, params = catalog._inventory_scope(cfg(), "@LINK")
     assert "all_users@LINK" in owners and "oracle_maintained='N'" in owners and params == {}
+
+
+@pytest.mark.parametrize("link", ["SALES.EXAMPLE", "SALES"])
+def test_public_namespace_does_not_scan_system_synonyms_and_remote_only_owner_is_candidate(monkeypatch, link):
+    from db_semantic_mcp.policy.models import PolicyProfile
+    from db_semantic_mcp.services.policy_service import PolicyService
+
+    profile = PolicyProfile(
+        profile_name="readonly",
+        scope={"allowed_schemas": ["APP", "PUBLIC"], "sources": {"remote": {"allowed_schemas": ["REMOTE_ONLY"]}}},
+    )
+    monkeypatch.setattr(PolicyService, "current_policy", lambda self: profile)
+    configuration = cfg(sources={"remote": {"db_link": link}, "blocked": {"db_link": "BLOCKED"}})
+    owners, params = catalog._inventory_scope(configuration, "")
+    assert list(params.values()) == ["APP"]
+    clause, bindings = catalog._public_candidates(configuration, owners, params)
+    assert "db_link=:public_link_0" in clause and bindings["public_link_0"] == link
+    assert "db_link LIKE :public_link_0_prefix" in clause
+    assert bindings["public_link_0_prefix"] == link + ".%"
+    assert "BLOCKED" not in bindings.values()
+    configuration = configuration.for_source("remote")
+    clause, bindings = catalog._public_candidates(configuration, owners, params)
+    assert "db_link" not in clause  # no unproven nested links
+
+
+def test_internal_catalog_queries_are_sys_qualified(monkeypatch):
+    import re
+
+    results = iter(snapshot_results())
+    calls = []
+
+    def fetch(conn, sql, params=None):
+        calls.append(sql)
+        return next(results)
+
+    monkeypatch.setattr(catalog, "_fetch", fetch)
+    catalog.fetch_snapshot(cfg(), MagicMock())
+    assert all(
+        not re.search(r"\b(?:FROM|JOIN)\s+(?:all_|user_|dual\b|product_component_version)", sql, re.I) for sql in calls
+    )
+    assert any("sys.all_objects" in sql for sql in calls)
+    assert any("sys.all_users" in sql for sql in calls)
+
+
+def test_remote_principal_and_definition_use_sys_catalog(monkeypatch):
+    calls = []
+
+    def fetch(conn, sql, params=None):
+        calls.append(sql)
+        if "all_db_links" in sql:
+            return [("APP", "SALES.EXAMPLE", "APP", "host")]
+        if "user_users" in sql:
+            return [("APP",)]
+        if "all_views" in sql:
+            return [("SELECT ID FROM APP.T",)]
+        return []
+
+    monkeypatch.setattr(catalog, "_fetch", fetch)
+    configuration = cfg(sources={"sales": {"db_link": "SALES"}}).for_source("sales")
+    assert catalog.get_object_definition(configuration, "APP", "V", "VIEW", conn=MagicMock()) == "SELECT ID FROM APP.T"
+    assert any("FROM sys.user_users@SALES.EXAMPLE" in sql for sql in calls)
+    assert any("FROM sys.all_views@SALES.EXAMPLE" in sql for sql in calls)

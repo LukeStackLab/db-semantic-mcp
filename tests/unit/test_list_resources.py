@@ -33,9 +33,9 @@ async def test_list_resource_templates_returns_expected_patterns(env):
     patterns = [t.uriTemplate for t in templates]
 
     # Schema and classification templates
-    assert "semantic://schema/tables/{qualified}" in patterns
-    assert "semantic://analysis/classification/{qualified}" in patterns
+    assert "semantic://schema/tables/{qualified}{?source}" in patterns
+    assert "semantic://analysis/classification/{qualified}{?source}" in patterns
     # Summary and bundle templates
-    assert "semantic://summary/table/{qualified}" in patterns
-    assert "semantic://summary/object/{type}/{qualified}" in patterns
-    assert "semantic://bundle/joining/{qualified}" in patterns
+    assert "semantic://summary/table/{qualified}{?source}" in patterns
+    assert "semantic://summary/object/{type}/{qualified}{?source}" in patterns
+    assert "semantic://bundle/joining/{qualified}{?source}" in patterns

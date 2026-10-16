@@ -15,6 +15,10 @@ from .files import SetupError
 
 
 def check_connection(cfg: Config) -> dict:
+    if cfg.database_type == "oracle":
+        from .oracle_checks import check_isolated
+
+        return check_isolated(cfg)
     try:
         with open_connection(cfg) as conn:
             cursor = conn.cursor()
@@ -40,10 +44,12 @@ async def _handshake(path: Path, timeout: float) -> int:
     from ..profiles import read_profile
 
     profile = read_profile(path)
+    references = []
     if profile.credential and profile.credential.storage == "env":
-        key = profile.credential.key
-        if key in os.environ:
-            entry["env"] = {key: os.environ[key]}
+        references.append(profile.credential.key)
+    if profile.oracle and profile.oracle.wallet_password_env:
+        references.append(profile.oracle.wallet_password_env)
+    entry["env"] = {key: os.environ[key] for key in references if key in os.environ}
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors:
         async with asyncio.timeout(timeout):
             async with stdio_client(StdioServerParameters(**entry), errlog=errors) as (reader, writer):

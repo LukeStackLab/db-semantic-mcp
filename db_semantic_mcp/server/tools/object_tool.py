@@ -10,13 +10,24 @@ def register() -> None:
     register_tool(
         Tool(
             name="describe_object",
-            description="Describe a VIEW, PROCEDURE, or FUNCTION: dependencies, IO, and optional definition.",
+            description="Describe native objects, including Oracle PACKAGE/BODY and SYNONYM: authorized dependencies, alias paths and available definitions.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "schema": {"type": "string"},
                     "name": {"type": "string"},
-                    "type": {"type": "string", "enum": ["VIEW", "PROCEDURE", "FUNCTION"]},
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "VIEW",
+                            "MATERIALIZED VIEW",
+                            "PROCEDURE",
+                            "FUNCTION",
+                            "PACKAGE",
+                            "PACKAGE BODY",
+                            "SYNONYM",
+                        ],
+                    },
                     "include_definition": {"type": "boolean", "default": False},
                 },
                 "required": ["schema", "name", "type"],
@@ -54,9 +65,25 @@ def _project_describe_object(obj: dict, include_definition: bool, max_definition
         "description": obj.get("description"),
         "status": obj.get("status"),
     }
+    if obj.get("query_reference"):
+        from ...services.oracle_metadata import qualified
+
+        out["object"] = qualified(schema, name)
     if obj.get("status") == "error":
         out["error_message"] = obj.get("error_message")
-    for key in ("definition_withheld", "definition_omission_reason", "dependencies_omitted"):
+    for key in (
+        "definition_withheld",
+        "definition_omission_reason",
+        "dependencies_omitted",
+        "dependency_completeness",
+        "io_completeness",
+        "chain",
+        "target",
+        "canonical_source",
+        "query_reference",
+        "resolution_chain",
+        "resolved_target",
+    ):
         if key in obj:
             out[key] = obj[key]
     definition = obj.get("definition")
@@ -78,6 +105,17 @@ async def _describe_object(args: dict, object_type: str) -> dict:
         ctx.cfg,
         policy=ctx.policy,
     )
+    if ctx.cfg.database_type == "oracle" and obj.get("status") != "error":
+        from ...services.oracle_metadata import query_reference
+
+        target = obj.get("resolved_target")
+        if args["schema"] == "PUBLIC" and ctx.cfg.source_id != "local" and target:
+            obj["query_reference"] = query_reference(
+                ctx.cfg.for_source(target["source"]), target["schema"], target["name"]
+            )
+        else:
+            obj["query_reference"] = query_reference(ctx.cfg, args["schema"], args["name"])
+        obj["canonical_source"] = obj.get("resolved_target", {}).get("source", ctx.cfg.source_id)
     obj = _attach_hash_and_bytes(obj)
     return _project_describe_object(obj, include, ctx.cfg.max_response_bytes)
 

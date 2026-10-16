@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from time import perf_counter
 from typing import TypeVar
 from weakref import WeakKeyDictionary
@@ -69,7 +69,7 @@ async def run_db_work(cfg: Config, fn: Callable[..., T], *args, **kwargs) -> T:
             timing["db_duration_ms"] = (perf_counter() - started) * 1000
 
     try:
-        pending = workers.executor.submit(run)
+        pending = workers.executor.submit(copy_context().run, run)
     except BaseException:
         workers.slots.release()
         raise

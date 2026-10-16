@@ -41,6 +41,11 @@ def _project_describe_table(full: dict, column_semantics: dict[str, str], max_co
         "indexes": full.get("indexes", []),
         "description": full.get("description"),
     }
+    if full.get("query_reference"):
+        from ...services.oracle_metadata import qualified
+
+        out["table"] = qualified(schema, table)
+    out.update({key: full[key] for key in ("chain", "target", "canonical_source", "query_reference") if key in full})
     if out["columns_omitted"] and len(shown) < len(columns):
         out["columns_hint"] = "Column list capped; pass `columns` to select specific columns."
     if full.get("cache"):

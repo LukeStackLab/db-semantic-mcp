@@ -168,3 +168,9 @@ def test_global_database_limit_also_applies_to_remote_metadata(monkeypatch):
     _, _, _, resolver = setup(monkeypatch, allowed_databases=["other"], sources={"sales": {}})
     with pytest.raises(PermissionError, match="global policy"):
         resolver.source_config("sales")
+
+
+def test_resolver_authority_uses_sys_dictionary_even_with_shadowed_current_schema(monkeypatch):
+    fake, _, _, resolver = setup(monkeypatch)
+    resolver.resolve(ref("ORDERS", "ERP"))
+    assert all("FROM sys.all_" in sql for sql, _ in fake.calls)

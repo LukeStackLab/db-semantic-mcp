@@ -34,7 +34,7 @@ def run(environment, answers, **kwargs):
         root=root,
         client="cursor",
         client_config=client,
-        input_fn=lambda prompt: next(iterator),
+        input_fn=lambda prompt: "sqlserver" if "資料庫類型" in prompt else next(iterator),
         password_fn=lambda prompt: "NEVER_ECHO_PASSWORD",
         emit=output.append,
         **kwargs,

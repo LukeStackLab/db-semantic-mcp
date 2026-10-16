@@ -40,6 +40,10 @@ _ctx: Context | None = None
 
 
 def get_context() -> Context:
+    from .source_context import _request_context
+
+    if (request := _request_context.get()) is not None:
+        return request
     global _ctx
     cfg = get_config()
     if _ctx is None or _ctx.cfg is not cfg:
@@ -86,6 +90,14 @@ def _default_output_schema(name: str) -> dict:
 def register_tool(tool: Tool, handler: ToolHandler) -> None:
     if tool.name in _TOOL_REGISTRY:
         raise ValueError(f"Duplicate tool registration: {tool.name}")
+    from .source_context import EXPLORATION_TOOLS
+
+    if tool.name in EXPLORATION_TOOLS:
+        tool.inputSchema.setdefault("properties", {})["source"] = {
+            "type": "string",
+            "default": "local",
+            "description": "Configured discovery source. Does not route or rewrite SQL.",
+        }
     if tool.outputSchema is None:
         # Advertise each tool's own contract rather than repeating unrelated
         # fields across every descriptor loaded into a client's context.
@@ -149,7 +161,7 @@ def _normalize_json_roundtrip(data: dict) -> tuple[str, dict]:
     return text, json.loads(text)
 
 
-async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
+async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
     if name not in _TOOL_REGISTRY:
         payload = {"error": f"Unknown tool: {name}"}
         return CallToolResult(
@@ -171,8 +183,14 @@ async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
         array_length = len(shaped) if isinstance(shaped, list) else None
         if not isinstance(shaped, dict):
             shaped = {"data": shaped} if shaped is not None else {"found": False}
-        if cfg.connection_name:
-            shaped["source"] = {"connection": cfg.connection_name, "database": cfg.database}
+        from .source_context import EXPLORATION_TOOLS, source_metadata
+
+        if (
+            cfg.connection_name
+            or cfg.database_type == "oracle"
+            or name in EXPLORATION_TOOLS | {"plan_or_execute_query", "tool_metrics"}
+        ):
+            shaped["source"] = source_metadata(cfg)
         if cfg.cache_enabled and name not in {"tool_metrics", "get_execution_policy"}:
             try:
                 shaped["cache"] = revalidation.merge_cache_metadata(
@@ -194,7 +212,11 @@ async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
         if not error_category and tool.outputSchema:
             _OUTPUT_VALIDATORS[name].validate(shaped)
     except Exception as exc:  # noqa: BLE001 (security boundary – never echo driver errors)
-        message = str(exc)
+        message = (
+            str(exc)
+            if isinstance(exc, (ValueError, KeyError, TypeError, PermissionError))
+            else "Operation unavailable; check connection and source permissions"
+        )
         if cfg.password:
             message = message.replace(cfg.password, "***")
         shaped = {"error": message}
@@ -230,6 +252,33 @@ async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
     return CallToolResult(
         content=[TextContent(type="text", text=text)], structuredContent=shaped, isError=error_category is not None
     )
+
+
+async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
+    from .source_context import EXPLORATION_TOOLS, bind_source
+
+    arguments = arguments or {}
+    try:
+        source = arguments.get("source", "local")
+        if name not in EXPLORATION_TOOLS and source != "local":
+            raise ValueError("This tool does not select a source; use native SQL references")
+        if source == "local" and not (name == "get_execution_policy" and arguments.get("reload")):
+            return await _dispatch_bound_tool(name, arguments)
+        base = get_context()
+        if name == "get_execution_policy" and arguments.get("reload"):
+            base.policy.reload()
+        async with bind_source(base, source):
+            return await _dispatch_bound_tool(name, arguments)
+    except Exception as exc:  # noqa: BLE001 (source security boundary)
+        message = (
+            str(exc)
+            if isinstance(exc, (ValueError, PermissionError))
+            else "Source unavailable; check connection and source permissions"
+        )
+        payload = {"error": message}
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(payload))], structuredContent=payload, isError=True
+        )
 
 
 @app.call_tool()

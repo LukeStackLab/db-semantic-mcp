@@ -23,11 +23,18 @@ class OracleOptions(BaseModel):
     config_dir: str | None = None
     wallet_location: str | None = None
     wallet_password_env: str | None = None
+    ssl_server_cert_dn: str | None = None
     current_schema: str | None = None
     connect_timeout: float = Field(default=10.0, gt=0, le=300)
 
     @model_validator(mode="after")
     def valid_options(self):
+        if self.dsn and (
+            re.search(r"(?i)(?:password|passwd|pwd|user|username|access_token|wallet_password)\s*=", self.dsn)
+            or re.search(r"^[^()\s]+/[^()\s]*@", self.dsn)
+            or re.search(r"://[^/()\s]*@", self.dsn)
+        ):
+            raise ValueError("Oracle DSN must not contain credentials; use explicit credential references")
         if sum(bool(v) for v in (self.service_name, self.sid, self.dsn)) != 1:
             raise ValueError("Oracle requires exactly one of service_name, sid, dsn")
         if self.driver_mode == "thin" and self.client_lib_dir:
@@ -92,6 +99,8 @@ class Config(BaseSettings):
     source_id: str = "local"
     source_dblink: str | None = None
     _base_cache_path: str | None = PrivateAttr(default=None)
+    _policy_snapshot: object | None = PrivateAttr(default=None)
+    _resolved_dblink: str | None = PrivateAttr(default=None)
     windows_auth: bool = False
     encrypt: bool = False
     db_worker_limit: int = Field(default=4, ge=1, le=32)
@@ -178,6 +187,7 @@ class Config(BaseSettings):
         base = self._base_cache_path or self.cache_path
         clone._base_cache_path = base
         clone.source_id = source_id
+        clone._resolved_dblink = (route_identity or {}).get("db_link") if source_id != "local" else None
         clone.source_dblink = None if source_id == "local" else self.sources[source_id].db_link
         if source_id == "local":
             clone.cache_path = base
@@ -205,9 +215,12 @@ class Config(BaseSettings):
 
 
 _config: Config | None = None
+_request_config: ContextVar[Config | None] = ContextVar("request_config", default=None)
 
 
 def get_config() -> Config:
+    if (request := _request_config.get()) is not None:
+        return request
     global _config
     if _config is None:
         _config = Config()

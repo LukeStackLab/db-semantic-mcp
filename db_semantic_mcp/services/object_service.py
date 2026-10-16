@@ -399,7 +399,7 @@ def _describe_oracle(cfg, schema, name, object_type, policy):
             suffix = resolver._suffix(cfg.source_id)
             exists = catalog._fetch(
                 conn,
-                f"SELECT object_type FROM all_objects{suffix} "
+                f"SELECT object_type FROM sys.all_objects{suffix} "
                 "WHERE owner=:owner AND object_name=:name AND object_type=:type",
                 {"owner": schema, "name": name, "type": kind},
             )
