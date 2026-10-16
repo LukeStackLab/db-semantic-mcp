@@ -1,7 +1,4 @@
-"""Transport-layer response shaping helper.
-
-See docs/superpowers/specs/2026-04-19-p0-token-optimization-design.md for rules.
-"""
+"""Transport-layer response shaping helper."""
 
 from typing import Any
 
