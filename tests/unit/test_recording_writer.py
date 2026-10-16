@@ -179,23 +179,32 @@ def test_cleanup_runs_once_per_taiwan_day_even_when_delete_fails(tmp_path):
     clock = {"now": datetime(2026, 10, 16, 12, tzinfo=TAIWAN)}
     deletes = {"count": 0}
 
+    committed: list[str] = []
+
     def connector(target):
         conn = sqlite3.connect(target, timeout=0)
+        pending: list[str] = []
 
         class Wrapped:
             def execute(self, sql, params=()):
                 if sql.lstrip().upper().startswith("DELETE"):
                     deletes["count"] += 1
                     raise sqlite3.OperationalError("disk I/O error")
-                return conn.execute(sql, params)
+                result = conn.execute(sql, params)
+                if sql.lstrip().upper().startswith("INSERT") and params:
+                    pending.append(str(params[0]))
+                return result
 
             def executescript(self, script):
                 return conn.executescript(script)
 
             def commit(self):
+                committed.extend(pending)
+                pending.clear()
                 return conn.commit()
 
             def rollback(self):
+                pending.clear()
                 return conn.rollback()
 
             def close(self):
@@ -203,15 +212,23 @@ def test_cleanup_runs_once_per_taiwan_day_even_when_delete_fails(tmp_path):
 
         return Wrapped()
 
+    def _committed(row_id: str) -> None:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if row_id in committed:
+                return
+            time.sleep(0.01)
+        raise AssertionError(row_id)
+
     recorder = Recorder(clock=lambda: clock["now"], connector=connector)
     assert recorder.try_emit(_event(path, "a")) is True
     assert recorder.try_emit(_event(path, "b")) is True
-    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("b",))
+    _committed("b")
     time.sleep(0.05)
     assert deletes["count"] == 1
     clock["now"] = datetime(2026, 10, 17, 1, tzinfo=TAIWAN)
     assert recorder.try_emit(_event(path, "c", started_at=_stamp("2026-10-17"))) is True
-    _wait(path, "SELECT id FROM mcp_execution_log WHERE id = ?", ("c",))
+    _committed("c")
     time.sleep(0.05)
     assert deletes["count"] == 2
     recorder.close()
