@@ -23,15 +23,17 @@
 
 Runtime Config 使用中性 server/database/user/password/port/windows_auth/encrypt 欄位；env prefix 維持中性的 SEMANTIC_MCP_。Profile v2 採共用平面欄位與 Oracle options，避免維護重複的屬性橋接。唯讀開關、caps、tool profile 等欄位在兩種 DB 相同。Oracle options 支援 service_name、SID、TNS DSN、driver_mode、client/config/wallet 位置及 wallet 憑證參照，互斥組合嚴格驗證。秘密不得寫進 connection.json、policy.json、Client 設定、log 或錯誤內容。
 
+共用 encrypt 對 Oracle direct service／SID 連線決定 TCP／TCPS。DSN／TNS 必須明確解析並確認每個位址的 protocol 與 encrypt 一致，再只傳解析後參數，避免 DSN 優先序使設定失效。TCPS 強制伺服器 DN 驗證，可設定預期 certificate DN，不提供略過驗證選項。Doctor 回報實際本機 NETWORK_PROTOCOL；DB link 遠端傳輸由資料庫管理，不宣稱已驗證端到端 TLS。
+
 Source definition 僅表示路由，不授權。Policy 對 local 沿用現有 scope；對 remote 使用明確的 source scope map。未列出的 DB link 不可用。解析部分 link 名稱為 Oracle catalog 中完整名稱；不可把 link 名稱直接從 caller 拼入內部 SQL。DB link 是 identifier 不能 bind，只接受 catalog 驗證且安全引用的完整名稱。private/public、固定／current user 認證差異納入解析與快取隔離，無法證明的來源失敗關閉。
 
-來源探索工具增加選用 `source`，預設 local；SQL 工具依 SQL 內每個物件解析其來源，不以 source 參數改寫 SQL。每個 source 使用獨立 cache namespace/path。不同來源、schema、policy、principal、driver options 不能混用快取。request context 使用 ContextVar，並行呼叫不得共享可變的 active source。既有 local response source 欄位相容，附 database_type/source id/capabilities 等必要資訊。
+來源探索工具增加選用 `source`，預設 local；SQL 工具依 SQL 內每個物件解析其來源，不以 source 參數改寫 SQL。每個 source 使用獨立 cache namespace/path。不同來源、schema、policy、principal、driver options 不能混用快取。request context 使用 ContextVar，並行呼叫不得共享可變的 active source。Oracle 每個 request 固定使用同一份已載入 policy snapshot，包含 local 入口、worker、synonym canonical target、cache namespace 與 FK 過濾；reload 只影響後續 request。既有 local response source 欄位相容，附 database_type/source id/capabilities 等必要資訊。
 
 ## 正確性與效率
 
 原生 Oracle SQL 型別須保留 NUMBER precision/scale、字元長度語意、timestamp/time zone；Decimal 不得轉為 float。若 driver 公開 API 無法保留 TIMESTAMP 精度或時區，必須明確拒絕該原生輸出並提示 caller 在原始 SQL 使用 TO_CHAR；不得回傳看似完整的失真值或自行重寫 SQL。Thick 保真轉換須經實機證明。LOB 在 connection 存活時有限量讀取；禁止先完整讀取大 LOB 再截斷。SQLGlot 只分析，不轉譯原始 SQL。拒絕 SELECT FOR UPDATE、sequence 變更、remote functions、SQL 內 PL/SQL、未知／可能有副作用的自訂函式。內建純函式採明確可審核集合。Oracle 零參數函式可看似 column reference，須以 live 欄位／查詢 scope 證據驗證。經 live 解析確定的 SYS.DUAL 可視為純量查詢 intrinsic，但 explicit deny 及來源操作限制仍生效，private shadow 不適用。遠端無 owner 且無可靠 CURRENT_SCHEMA 證據時要求 owner.table@link。
 
-Oracle metadata 取 ALL_* 可見 catalog，先按來源及 policy 過濾再寫 cache。預設 inventory 僅取 ALL_USERS.ORACLE_MAINTAINED=N 的應用 schemas；明確 policy.allowed_schemas 可納入系統 schema。capabilities 與文件揭露此探索範圍，避免掃描大量公開系統 package source。複合 FK 保留順序與 constraint identity；disabled、not validated、deferrable 或 functional index 證據不足時不推論可信唯一性。snapshot fingerprint 必須涵蓋 constraint/index/comment/definition 變更；可先採 catalog-only snapshot hashing，並以 TTL/worker bound 限制成本，不能僅依 LAST_DDL_TIME 而漏掉變更。
+Oracle 內部 metadata 與授權證據查詢明確使用 SYS.ALL_*／SYS.USER_* 等可信系統 view，內部純量查詢使用 SYS.DUAL，避免私人同名 view／synonym 遮蔽；不改使用者 SQL，也不授予額外 SYS scope。Oracle metadata 取 ALL_* 可見 catalog，先按來源及 policy 過濾再寫 cache。預設 inventory 僅取 ALL_USERS.ORACLE_MAINTAINED=N 的應用 schemas；明確 policy.allowed_schemas 可納入系統 schema。capabilities 與文件揭露此探索範圍，避免掃描大量公開系統 package source。複合 FK 保留順序與 constraint identity；disabled、not validated、deferrable 或 functional index 證據不足時不推論可信唯一性。snapshot fingerprint 必須涵蓋 constraint/index/comment/definition 變更；可先採 catalog-only snapshot hashing，並以 TTL/worker bound 限制成本，不能僅依 LAST_DDL_TIME 而漏掉變更。
 
 columns header 本身超過 max_response_bytes 時回受控的結果過寬錯誤，不回超出上限的欄位清單，也不宣稱完整。
 
