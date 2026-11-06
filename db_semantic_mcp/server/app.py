@@ -100,6 +100,18 @@ def register_tool(tool: Tool, handler: ToolHandler) -> None:
             "default": "local",
             "description": "Configured discovery source. Does not route or rewrite SQL.",
         }
+    if tool.name != "list_databases":
+        from .database_context import configured_databases
+
+        tool.inputSchema.setdefault("properties", {})["database"] = {
+            "type": "string",
+            "minLength": 1,
+            "description": "Configured database; call list_databases to select.",
+        }
+        if len(configured_databases(get_config())) > 1:
+            required = tool.inputSchema.setdefault("required", [])
+            if "database" not in required:
+                required.append("database")
     if tool.outputSchema is None:
         # Advertise each tool's own contract rather than repeating unrelated
         # fields across every descriptor loaded into a client's context.
@@ -176,7 +188,7 @@ async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
     array_length = None
     error_category = None
     try:
-        if name != "refresh_schema_cache":
+        if name not in {"refresh_schema_cache", "list_databases"}:
             await revalidation.maybe_revalidate(cfg)
         result = await handler(arguments or {})
         error_category = _failure_category(result)
@@ -188,12 +200,12 @@ async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
         from .source_context import EXPLORATION_TOOLS, source_metadata
 
         if (
-            cfg.connection_name
+            (name != "list_databases" and cfg.connection_name)
             or cfg.database_type == "oracle"
             or name in EXPLORATION_TOOLS | {"plan_or_execute_query", "tool_metrics"}
         ):
             shaped["source"] = source_metadata(cfg)
-        if cfg.cache_enabled and name not in {"tool_metrics", "get_execution_policy"}:
+        if cfg.cache_enabled and name not in {"tool_metrics", "get_execution_policy", "list_databases"}:
             try:
                 shaped["cache"] = revalidation.merge_cache_metadata(
                     cfg,
@@ -209,6 +221,10 @@ async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
                     {"freshness_unknown": True},
                 )
                 logger.warning("Cache freshness unavailable for tool %s", name)
+        if name == "plan_or_execute_query" and getattr(cfg, "profile_version", 2) == 3:
+            data = result.get("data", {}) if isinstance(result, dict) else {}
+            if isinstance(data, dict) and "referenced_databases" in data:
+                shaped["referenced_databases"] = data["referenced_databases"]
         # Normalize values exactly once; JSON text and structuredContent agree.
         text, shaped = _normalize_json_roundtrip(shaped)
         if not error_category and tool.outputSchema:
@@ -230,7 +246,7 @@ async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
         # Raw driver tracebacks may include SQL or credentials.
         logger.error("Tool %s failed (%s)", name, error_category)
         text = json.dumps(shaped, ensure_ascii=False, separators=(",", ":"))
-    if cfg.metrics_enabled:
+    if cfg.metrics_enabled and name != "list_databases":
         from ..infrastructure.recording.context import suppress_recording
 
         try:
@@ -261,17 +277,41 @@ async def _dispatch_bound_tool(name: str, arguments: dict) -> CallToolResult:
 
 async def _dispatch_tool(name: str, arguments: dict) -> CallToolResult:
     from ..infrastructure.recording.context import record_tool, tool_outcome
+    from .database_context import bind_database
 
-    cfg = get_config()
-    async with record_tool(cfg, name) as span:
-        try:
+    arguments = arguments or {}
+    if name == "list_databases":
+        return await _dispatch_bound_tool(name, arguments)
+
+    async def recorded():
+        async with record_tool(get_config(), name) as span:
             result = await _dispatch_sourced_tool(name, arguments)
-        except asyncio.CancelledError:
-            raise
-        else:
             if not span.finished:
                 span.finish(*tool_outcome(name, result))
             return result
+
+    if getattr(get_config(), "profile_version", 2) != 3 and "database" not in arguments:
+        return await recorded()
+    try:
+        async with bind_database(
+            arguments.get("database"), reload=name == "get_execution_policy" and bool(arguments.get("reload"))
+        ):
+            return await recorded()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 (routing security boundary)
+        message = (
+            str(exc)
+            if isinstance(exc, (ValueError, TypeError, PermissionError))
+            else "Database unavailable; check connection and permissions"
+        )
+        password = get_config().password
+        if password:
+            message = message.replace(password, "***")
+        payload = {"error": message}
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(payload))], structuredContent=payload, isError=True
+        )
 
 
 async def _dispatch_sourced_tool(name: str, arguments: dict) -> CallToolResult:
@@ -285,7 +325,9 @@ async def _dispatch_sourced_tool(name: str, arguments: dict) -> CallToolResult:
         if (
             source == "local"
             and get_config().database_type != "oracle"
-            and not (name == "get_execution_policy" and arguments.get("reload"))
+            and not (
+                name == "get_execution_policy" and arguments.get("reload") and get_config()._policy_snapshot is None
+            )
         ):
             return await _dispatch_bound_tool(name, arguments)
         base = get_context()
@@ -309,6 +351,8 @@ async def _dispatch_sourced_tool(name: str, arguments: dict) -> CallToolResult:
             if isinstance(exc, (ValueError, PermissionError))
             else "Source unavailable; check connection and source permissions"
         )
+        if get_config().password:
+            message = message.replace(get_config().password, "***")
         payload = {"error": message}
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(payload))], structuredContent=payload, isError=True

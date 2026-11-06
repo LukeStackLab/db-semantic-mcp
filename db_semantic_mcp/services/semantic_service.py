@@ -141,7 +141,7 @@ def _classification_cache_allowed(policy) -> bool:
     if current_policy is None:
         return False
     scope = current_policy().scope
-    return not (scope.allowed_schemas or scope.allowed_tables or scope.denied_tables)
+    return not (scope.allowed_schemas or scope.allowed_tables or scope.denied_tables or scope.database_scopes)
 
 
 def _authorized_structure(struct: dict, database: str, policy=None) -> dict:

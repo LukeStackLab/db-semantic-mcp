@@ -80,7 +80,13 @@ def _enforce_statement(intent: SqlIntent, policy: PolicyProfile, database: str) 
 
     scope = policy.scope
     if intent.metadata_functions and any(
-        (scope.allowed_databases, scope.allowed_schemas, scope.allowed_tables, scope.denied_tables)
+        (
+            scope.allowed_databases,
+            scope.allowed_schemas,
+            scope.allowed_tables,
+            scope.denied_tables,
+            scope.database_scopes,
+        )
     ):
         # IDs, dynamic object arguments, and scalar metadata functions can
         # reveal objects absent from FROM/JOIN evidence. Restricted profiles

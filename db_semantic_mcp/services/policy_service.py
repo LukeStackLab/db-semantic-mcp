@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from ..config import Config, get_config
+from ..config import Config, get_config, validate_database_names
 from ..policy.analyzer import SqlIntent
 from ..policy.enforcer import enforce
 from ..policy.intents import get_analyzer
@@ -51,12 +51,28 @@ class PolicyService:
 
     def reload(self) -> None:
         self.load()
+        self.current_policy()
         self._analyzer = get_analyzer(self._cfg)
 
     def current_policy(self) -> PolicyProfile:
         if self._policy is None:
             self.load()
         assert self._policy is not None
+        if self._cfg.profile_version == 3:
+            scope = self._policy.scope
+            validate_database_names(scope.allowed_databases)
+            if any(db not in scope.database_scopes for db in scope.allowed_databases):
+                raise ValueError("Version 3 policy requires a scope entry for every allowed database")
+            effective = [db for db in self._cfg.databases if db in scope.allowed_databases]
+            if not effective:
+                # Empty lists mean unrestricted for legacy v2 scope checks.
+                # Never expose that representation for a v3 deny-all policy.
+                raise ValueError("No configured database is authorized by policy")
+            self._policy = self._policy.model_copy(deep=True)
+            self._policy.scope.allowed_databases = effective
+            self._policy.scope.database_scopes = {
+                db: scope.database_scopes[db].model_copy(deep=True) for db in effective
+            }
         return self._policy
 
     def analyze(self, sql: str) -> SqlIntent:

@@ -214,7 +214,7 @@ async def test_sequence_numbers_are_unique_across_copied_contexts(tmp_path):
 
         def work(index):
             try:
-                parent.run(_one_sql, index)
+                parent.copy().run(_one_sql, index)
             except Exception as exc:  # noqa: BLE001 - the test records worker failures
                 errors.append(exc)
 

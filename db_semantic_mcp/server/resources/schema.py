@@ -1,5 +1,5 @@
 import json
-from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit, urlunsplit
 
 from mcp.types import Resource, ResourceTemplate
 from pydantic import AnyUrl
@@ -11,6 +11,19 @@ from ..app import app, get_context
 
 @app.list_resources()
 async def list_resources() -> list[Resource]:
+    from ..database_context import _root_context, available_databases, configured_databases
+
+    cfg = get_context().cfg
+    if len(configured_databases(cfg)) > 1:
+        root = _root_context()
+        return [
+            Resource(
+                uri=AnyUrl("semantic://summary/database?" + urlencode({"database": name})),
+                name=f"Database summary: {name}",
+                mimeType="application/json",
+            )
+            for name in available_databases(cfg, root.policy.current_policy())
+        ]
     # Only resources without a tool equivalent are listed here.
     # `get_tables` tool supersedes the old semantic://schema/tables resource.
     return [
@@ -24,29 +37,30 @@ async def list_resources() -> list[Resource]:
 
 @app.list_resource_templates()
 async def list_resource_templates() -> list[ResourceTemplate]:
+    selector = "{?database,source}" if getattr(get_context().cfg, "profile_version", 2) == 3 else "{?source}"
     return [
         ResourceTemplate(
-            uriTemplate="semantic://schema/tables/{qualified}{?source}",
+            uriTemplate="semantic://schema/tables/{qualified}" + selector,
             name="Table metadata",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://analysis/classification/{qualified}{?source}",
+            uriTemplate="semantic://analysis/classification/{qualified}" + selector,
             name="Table classification",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://summary/table/{qualified}{?source}",
+            uriTemplate="semantic://summary/table/{qualified}" + selector,
             name="AI-ready table summary (join-focused)",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://summary/object/{type}/{qualified}{?source}",
+            uriTemplate="semantic://summary/object/{type}/{qualified}" + selector,
             name="AI-ready object summary (reads/writes/depends)",
             mimeType="application/json",
         ),
         ResourceTemplate(
-            uriTemplate="semantic://bundle/joining/{qualified}{?source}",
+            uriTemplate="semantic://bundle/joining/{qualified}" + selector,
             name="Joining bundle for a single table",
             mimeType="application/json",
         ),
@@ -70,14 +84,35 @@ def _split_qualified(qualified: str, uri: str) -> tuple[str, str]:
 
 @app.read_resource()
 async def read_resource(uri: AnyUrl) -> str:
+    try:
+        return await _read_resource_selected(uri)
+    except Exception as exc:  # noqa: BLE001 (resource security boundary)
+        message = (
+            str(exc)
+            if isinstance(exc, (ValueError, PermissionError))
+            else "Database unavailable; check connection and permissions"
+        )
+        password = get_context().cfg.password
+        if password:
+            message = message.replace(password, "***")
+        error_type = PermissionError if isinstance(exc, PermissionError) else ValueError
+        raise error_type(message) from None
+
+
+async def _read_resource_selected(uri: AnyUrl) -> str:
+    from ..database_context import bind_database
     from ..source_context import bind_source
 
     parsed = urlsplit(str(uri))
     query = parse_qs(parsed.query, strict_parsing=True, keep_blank_values=True)
-    if set(query) - {"source"} or len(query.get("source", [])) > 1:
+    if set(query) - {"source", "database"} or any(len(query.get(key, [])) > 1 for key in ("source", "database")):
         raise ValueError("Invalid resource source selector")
-    async with bind_source(get_context(), query.get("source", ["local"])[0]):
-        return await _read_resource_bound(AnyUrl(urlunsplit(parsed._replace(query=""))))
+    if getattr(get_context().cfg, "profile_version", 2) != 3 and "database" not in query:
+        async with bind_source(get_context(), query.get("source", ["local"])[0]):
+            return await _read_resource_bound(AnyUrl(urlunsplit(parsed._replace(query=""))))
+    async with bind_database(query.get("database", [None])[0]):
+        async with bind_source(get_context(), query.get("source", ["local"])[0]):
+            return await _read_resource_bound(AnyUrl(urlunsplit(parsed._replace(query=""))))
 
 
 async def _read_resource_bound(uri: AnyUrl) -> str:

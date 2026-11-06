@@ -54,14 +54,14 @@ class TerminalUI:
             instruction="↑↓ 移動 · Enter 確認",
         )
 
-    def checkbox(self, label, choices):
+    def checkbox(self, label, choices, default=None, empty_message="請至少勾選一個 Client。"):
         return self._prompt(
             questionary.checkbox,
             label,
-            choices=[Choice(title, value=value) for title, value in choices],
+            choices=[Choice(title, value=value, checked=value in (default or [])) for title, value in choices],
             pointer="❯",
             instruction="↑↓ 移動 · Space 勾選 · Enter 確認",
-            validate=lambda values: True if values else "請至少勾選一個 Client。",
+            validate=lambda values: True if values else empty_message,
         )
 
     def confirm(self, label, default=False):
@@ -86,7 +86,11 @@ class TerminalUI:
             p = draft.profile
             table.add_row(
                 Text(p.name, style="bold"),
-                Text(f"{p.database_type}\n{p.database}"),
+                Text(
+                    f"{p.database_type}\n"
+                    + "、".join(getattr(p, "databases", None) or [p.database])
+                    + f"\n啟動：{p.database}"
+                ),
                 Text(f"{p.server}:{p.port}" if p.server else "TNS / DSN"),
                 Text("唯讀" if p.readonly else "受限寫入", style="green" if p.readonly else "yellow"),
             )

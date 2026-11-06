@@ -64,7 +64,12 @@ async def _startup() -> asyncio.Task | None:
                 existing["captured_at"],
             )
         await enqueue_all_tables(cfg.cache_path, cfg.database)
-        bg_task = asyncio.create_task(background_fill_loop(cfg))
+        if cfg.profile_version == 3:
+            from .server.database_context import start_database_background
+
+            bg_task = await start_database_background(get_context(), background_fill_loop)
+        else:
+            bg_task = asyncio.create_task(background_fill_loop(cfg))
 
     register_all()
     register_prompts()
@@ -82,7 +87,7 @@ async def _run() -> None:
         from .infrastructure.recording.writer import stop_recording
 
         stop_recording()
-        if bg_task is not None:
+        if bg_task is not None and get_config().profile_version != 3:
             bg_task.cancel()
             try:
                 await bg_task
@@ -95,8 +100,10 @@ async def _run() -> None:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        from .server.database_context import shutdown_database_contexts
         from .server.source_context import shutdown_source_contexts
 
+        await shutdown_database_contexts()
         await shutdown_source_contexts()
         await shutdown_db_workers()
 
@@ -124,6 +131,8 @@ def main(argv: list[str] | None = None) -> None:
     for name, help_text in [("serve", "啟動固定配置的 MCP"), ("doctor", "檢查配置、連線與 MCP 握手")]:
         command = commands.add_parser(name, help=help_text)
         command.add_argument("--config", type=Path, required=name == "doctor", help="獨立連線 JSON 配置")
+        if name == "doctor":
+            command.add_argument("--database", help="只檢查已授權的 Database")
     migration = commands.add_parser("migrate", help="預覽舊版 v1 配置遷移；--apply 才套用")
     migration.add_argument("--legacy-root", type=Path, help="舊 connections 根目錄或單一配置目錄")
     migration.add_argument("--config-dir", type=Path, help="新的 connections 根目錄")
@@ -157,18 +166,25 @@ def main(argv: list[str] | None = None) -> None:
             cfg = load_profile(args.config)
             configure(cfg)
             if args.command == "doctor":
-                from .setup.checks import check_connection, check_mcp
+                from .setup.checks import check_connection, check_database_set, check_mcp
+                from .setup.files import SetupError
 
-                result = check_connection(cfg)
-                count = check_mcp(args.config)
+                if cfg.profile_version == 3 or args.database is not None:
+                    result = check_database_set(cfg, args.database)
+                else:
+                    result = check_connection(cfg)
+                try:
+                    count = check_mcp(args.config)
+                    result["mcp"] = {"status": "ok", "tools": count}
+                    result["mcp_tools"] = count
+                except SetupError:
+                    result["mcp"] = {"status": "error", "message": "MCP 啟動或握手失敗。"}
+                    result["ok"] = False
                 print(
-                    json.dumps(
-                        {"connection": cfg.connection_name, **result, "mcp_tools": count},
-                        ensure_ascii=False,
-                        default=str,
-                        indent=2,
-                    )
+                    json.dumps({"connection": cfg.connection_name, **result}, ensure_ascii=False, default=str, indent=2)
                 )
+                if result.get("ok") is False:
+                    raise SystemExit(1)
                 return
         asyncio.run(_run())
     except (KeyboardInterrupt, EOFError):

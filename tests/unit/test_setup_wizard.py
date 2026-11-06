@@ -494,23 +494,28 @@ def test_full_keyboard_installer_with_three_clients(environment, multiple_client
     from prompt_toolkit.output import DummyOutput
     from rich.console import Console
 
+    from db_semantic_mcp.setup import sqlserver_wizard
     from db_semantic_mcp.setup.terminal import TerminalUI
 
+    monkeypatch.setattr(sqlserver_wizard, "discover_databases", lambda cfg: ["ERP", "CRM"])
+    monkeypatch.setattr(sqlserver_wizard, "check_connection", lambda cfg: {"database": cfg.database})
     ui = TerminalUI(Console(file=StringIO(), width=80))
     keys = iter(
         [
-            " \x1b[B \x1b[B \r",  # Three client checkboxes.
+            " \x1b[B \x1b[B \r",  # Three Clients.
             "erp\r",
             "\r",
             "sql\r",
             "\r",
-            "ERP\r",
             "reader\r",
             "secret\r",
+            "\r",  # No manual names.
+            " \x1b[B \r",  # Sorted CRM, ERP.
+            "\r",  # Bootstrap CRM.
             "\r",
             "\r",
             "\r",
-            "\r",  # Read-only, recording off, no extra connection, apply.
+            "\r",  # read-only, recording off, no extra connection, apply.
         ]
     )
     prompt = ui._prompt

@@ -61,6 +61,21 @@ class RemoteSource(BaseModel):
         return value.upper()
 
 
+def validate_database_names(values: list[str]) -> list[str]:
+    """Require explicit, exact names; never merge case-sensitive names."""
+    if not values or len(set(values)) != len(values):
+        raise ValueError("Databases must be a nonempty unique list")
+    if any(
+        not value.strip()
+        or value != value.strip()
+        or any(ord(ch) < 32 for ch in value)
+        or any(ch in value for ch in "*?%")
+        for value in values
+    ):
+        raise ValueError("Database names must be explicit and contain no wildcards")
+    return values
+
+
 class Config(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SEMANTIC_MCP_",
@@ -92,6 +107,8 @@ class Config(BaseSettings):
     user: str | None = None
     password: str | None = Field(default=None, repr=False)
     database: str = ""
+    databases: list[str] = Field(default_factory=list)
+    profile_version: Literal[2, 3] = 2
     port: int | None = Field(default=None, ge=1, le=65535)
     database_type: Literal["sqlserver", "oracle"] = "sqlserver"
     oracle: OracleOptions | None = None
@@ -175,6 +192,16 @@ class Config(BaseSettings):
             raise ValueError("Oracle options and sources require database_type=oracle")
         elif not self.server or not self.database:
             raise ValueError("SQL Server requires server and database")
+        if self.profile_version == 3:
+            if self.database_type != "sqlserver":
+                raise ValueError("Version 3 requires SQL Server")
+            validate_database_names(self.databases)
+            if self.database not in self.databases:
+                raise ValueError("Startup database must be configured")
+        else:
+            if self.databases and self.databases != [self.database]:
+                raise ValueError("Version 2 supports one database")
+            self.databases = [self.database]
         if self.source_id != "local":
             route = self.sources.get(self.source_id)
             if route is None or self.source_dblink != route.db_link:
@@ -204,6 +231,8 @@ class Config(BaseSettings):
             "server": self.server,
             "port": self.port,
             "database": self.database,
+            "databases": self.databases,
+            "profile_version": self.profile_version,
             "user": self.user,
             "windows_auth": self.windows_auth,
             "encrypt": self.encrypt,

@@ -68,6 +68,28 @@ Client entry 使用安裝環境的 Python，參數為 `-I -m db_semantic_mcp.mai
 
 密碼優先存於系統 keyring。macOS／Linux 經明確同意可使用私有明文檔，目錄權限 `0700`、檔案 `0600`；Windows 使用 keyring。手動 profile 可使用密碼環境變數參照。環境變數啟動仍可用，見 [.env.example](.env.example)。
 
+## 一個 MCP 使用多個 SQL Server Database
+
+同一台 SQL Server、同一組帳密可共用一個 MCP entry。新版互動 setup 在登入資訊之後，以 Space 勾選 Database，並選擇啟動驗證庫；只註冊一個 MCP。候選清單只顯示可見且可連線的非系統庫，可手動加入名稱再驗證。選取不會自動擴充 SQL Server 登入權限；v3 需要每庫 `VIEW DEFINITION`、`ALTER ANY SECURITY POLICY` 及實際資料存取權限，才能確認 metadata 與 security policy catalog 完整可見。後者屬較高權限；程式不會自動授權，缺少時拒絕多庫驗證，應由管理者評估適合的登入。
+
+多庫採 v3 配置；v2 單庫及 Oracle 保持原有方式。範例：[connection](config/connection.sqlserver.multi.example.json)、[policy](config/policy.sqlserver.multi.example.json)。手動配置時將兩檔存成私有目錄中的 `connection.json`、`policy.json`，設定密碼環境變數，再執行 `serve --config /absolute/path/connection.json`。配置的 `database` 只用於啟動驗證與初始暖機；多庫工具每次都必須指定目標。
+
+```text
+list_databases()
+get_tables(database="ERP")
+describe_table(database="CRM", schema="sales", table="Customers")
+plan_or_execute_query(
+  database="ERP",
+  query="SELECT o.OrderId, c.CustomerName FROM ERP.dbo.Orders o JOIN CRM.sales.Customers c ON o.CustomerId = c.CustomerId"
+)
+```
+
+`list_databases` 只列出配置與 policy 交集，不查詢整台伺服器。全域與每庫 schema/table scope 同時生效。跨庫 SELECT 採原生三段名稱，執行前透過同一連線逐一檢查來源及 view／synonym 依賴；未知來源、未授權庫、linked server 與跨庫寫入均拒絕。無法證明安全的 computed／custom-type／external／RLS 來源保守拒絕。v3 寫入只接受起始庫的直接實體表，且拒絕帶有 trigger、default、check、FK、bound rule 或 temporal 等尚未證明隱含行為的目標；view／synonym 寫入同樣拒絕。原始 SQL 不會被改寫，不自動加 COLLATE。
+
+`database` 固定單次 request 的連線起始庫；cache、metrics 與執行紀錄按庫隔離。跨庫 SQL 只記錄一次，歸於起始庫。成功授權的 query 回應包含 `referenced_databases`。關聯探索仍限定所選庫，不宣稱自動發現跨庫 FK。
+
+Resources 使用例如 `semantic://summary/database?database=ERP`。v3 的所有工具集合都多一個 `list_databases`。`doctor --config PATH` 逐庫檢查，`doctor --config PATH --database ERP` 可限定單庫，失敗會回傳非零 exit code。非啟動庫採首次使用時暖機；個別庫離線不會終止其他庫服務。測試範圍及實機限制見[多庫驗證紀錄](docs/validation-multi-database.md)。
+
 ## Oracle 連線與來源授權
 
 `oracle.service_name`、`oracle.sid`、`oracle.dsn` 必須擇一。service／SID 另需 `server` 與 `port`。TNS alias 使用適當的 `config_dir`。禁止在 DSN 放入憑證。`database` 用於連線與 cache 身分，Oracle option 決定實際 service／SID。

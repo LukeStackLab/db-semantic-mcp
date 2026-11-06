@@ -71,7 +71,16 @@ def database_allowed(scope: PolicyScope, database: str) -> bool:
 
 
 def object_allowed(scope: PolicyScope, database: str, schema: str, name: str) -> bool:
-    if not name or not database_allowed(scope, database):
+    if not database_allowed(scope, database):
+        return False
+    per_database = getattr(scope, "database_scopes", {}).get(database)
+    return _object_scope_allowed(scope, database, schema, name) and (
+        per_database is None or _object_scope_allowed(per_database, database, schema, name)
+    )
+
+
+def _object_scope_allowed(scope, database: str, schema: str, name: str) -> bool:
+    if not name:
         return False
     if scope.allowed_schemas and schema not in scope.allowed_schemas:
         return False

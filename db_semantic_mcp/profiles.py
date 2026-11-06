@@ -6,17 +6,18 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_serializer, model_validator
 
-from .config import Config, OracleOptions, RemoteSource
+from .config import Config, OracleOptions, RemoteSource, validate_database_names
 from .credentials import CredentialReference, read_password
-from .policy.models import PolicyFile, PolicyOperations, PolicyProfile
+from .policy.models import DatabaseScope, PolicyFile, PolicyOperations, PolicyProfile
 from .setup.files import SetupError, read_snapshot
 
 
 class ConnectionProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    format_version: Literal[2] = 2
+    format_version: Literal[2, 3] = 2
+    databases: list[str] = Field(default_factory=list)
     database_type: Literal["sqlserver", "oracle"] = "sqlserver"
     oracle: OracleOptions | None = None
     sources: dict[str, RemoteSource] = Field(default_factory=dict)
@@ -49,6 +50,16 @@ class ConnectionProfile(BaseModel):
 
     @model_validator(mode="after")
     def validate_connection(self):
+        if self.format_version == 3:
+            if self.database_type != "sqlserver":
+                raise ValueError("Version 3 requires SQL Server")
+            validate_database_names(self.databases)
+            if self.database not in self.databases:
+                raise ValueError("Startup database must be configured")
+        else:
+            if "databases" in self.model_fields_set:
+                raise ValueError("databases requires version 3")
+            object.__setattr__(self, "databases", [self.database])
         defaults = {
             name: field.get_default(call_default_factory=True)
             for name, field in Config.model_fields.items()
@@ -57,6 +68,8 @@ class ConnectionProfile(BaseModel):
         defaults.update(
             server=self.server,
             database=self.database,
+            databases=self.databases,
+            profile_version=self.format_version,
             user=self.user,
             database_type=self.database_type,
             oracle=self.oracle,
@@ -67,6 +80,13 @@ class ConnectionProfile(BaseModel):
         cfg = Config.from_fixed(**defaults)
         object.__setattr__(self, "port", cfg.port)
         return self
+
+    @model_serializer(mode="wrap")
+    def serialize_profile(self, handler):
+        data = handler(self)
+        if self.format_version == 2:
+            data.pop("databases", None)
+        return data
 
     @field_validator("tool_profile")
     @classmethod
@@ -110,7 +130,10 @@ class ConnectionProfile(BaseModel):
                     "max_rows_affected": self.max_rows_affected,
                     "query_timeout_seconds": self.query_timeout,
                 },
-                "scope": {"allowed_databases": [self.database]},
+                "scope": {
+                    "allowed_databases": self.databases,
+                    **({"database_scopes": {db: {} for db in self.databases}} if self.format_version == 3 else {}),
+                },
             }
         )
 
@@ -162,6 +185,8 @@ def config_for_profile(
         sources=profile.sources,
         server=profile.server,
         database=profile.database,
+        databases=profile.databases,
+        profile_version=profile.format_version,
         user=profile.user,
         password=password,
         port=profile.port,
@@ -184,7 +209,9 @@ def config_for_profile(
 
 
 def profile_bytes(profile: ConnectionProfile) -> bytes:
-    return (profile.model_dump_json(indent=2) + "\n").encode()
+    return (
+        profile.model_dump_json(indent=2, exclude={"databases"} if profile.format_version == 2 else set()) + "\n"
+    ).encode()
 
 
 def policy_bytes(
@@ -214,7 +241,12 @@ def policy_bytes(
             setattr(constraints, key, min(getattr(constraints, key), getattr(policy.constraints, key)))
         policy.constraints = constraints
         policy.scope = previous.scope.model_copy(deep=True)
-        if not policy.scope.allowed_databases or policy.scope.allowed_databases == [previous_database]:
+        if profile.format_version == 3:
+            policy.scope.allowed_databases = list(profile.databases)
+            policy.scope.database_scopes = {
+                db: policy.scope.database_scopes.get(db, DatabaseScope()) for db in profile.databases
+            }
+        elif not policy.scope.allowed_databases or policy.scope.allowed_databases == [previous_database]:
             policy.scope.allowed_databases = [profile.database]
     return (
         json.dumps(
@@ -260,4 +292,7 @@ def load_profile(path: Path) -> Config:
         raise SetupError("受限寫入必須要求 UPDATE 使用 WHERE。")
     from .services.policy_service import PolicyService
 
-    return cfg.scope_cache(PolicyService(cfg).current_policy())
+    effective_policy = PolicyService(cfg).current_policy()
+    if profile.format_version == 3 and cfg.database not in effective_policy.scope.allowed_databases:
+        raise SetupError("啟動 Database 未通過配置與 policy 授權，拒絕啟動。")
+    return cfg.scope_cache(effective_policy)

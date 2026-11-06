@@ -41,7 +41,19 @@ async def _get_prompt(name: str, arguments: dict | None = None) -> GetPromptResu
     if name not in _REGISTRY or not _enabled(name):
         raise ValueError(f"Unknown prompt: {name}")
     _p, handler = _REGISTRY[name]
-    return await handler(arguments or {})
+    result = await handler(arguments or {})
+    from ...config import get_config
+
+    if getattr(get_config(), "profile_version", 2) == 3:
+        from mcp.types import TextContent
+
+        for message in result.messages:
+            if isinstance(message.content, TextContent):
+                message.content.text = (
+                    "First call list_databases. Select an authorized database and pass database to every subsequent tool call. Multi-database profiles require database. Discovery and join-path evidence apply only to the selected database.\n\n"
+                    + message.content.text
+                )
+    return result
 
 
 def register_prompts() -> None:

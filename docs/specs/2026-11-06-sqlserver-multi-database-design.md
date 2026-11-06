@@ -2,7 +2,9 @@
 
 日期：2026-11-06
 
-狀態：設計規格，待使用者審查；尚未實作
+狀態：使用者已核准並完成實作；本機及 MCP 協定驗證通過，SQL Server 實機驗證待執行。
+
+驗證與目前保守寫入限制見 [多庫驗證紀錄](../validation-multi-database.md)。
 
 ## 1. 目的與已確認範圍
 
@@ -163,6 +165,8 @@ validate、dry_run、auto 與 execute_if_safe 共用相同的 Database 選擇與
 4. 使用同一登入身分與執行連線，從正確 Database 解析必要 SYS catalog 證據，避免將 ERP 的 metadata 套到 CRM 同名物件。
 5. 若經由 view、synonym 或靜態依賴引用其他物件，檢查完整已解析來源鏈。未知、循環、不可證明、超出既有物件能力或指向未授權庫的路徑均拒絕，不因表面名稱已授權而放行。
 6. 確認所有來源後，才允許執行；缺少權限或 metadata 不足時，不用舊 cache 取代授權證據。
+
+實作審查補充：v3 要求每庫 VIEW DEFINITION 與 ALTER ANY SECURITY POLICY，以避免物件級 DENY 隱藏 RLS catalog。這是完整性證據要求；產品不自動 grant，缺少則安全拒絕。後者屬較高權限，需由管理者評估。
 
 四段名稱、linked server、OPENQUERY／OPENROWSET、動態 SQL 與既有不允許的 SQL 形式維持拒絕。SELECT INTO 與其他可能寫入的 SELECT 形式不得因跨庫支援而放行。查詢執行錯誤或 collation 不相容時回報安全錯誤，不自動加 COLLATE 或改寫 SQL。
 

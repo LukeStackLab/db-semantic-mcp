@@ -56,3 +56,8 @@ def register_all() -> None:
         groups = [g for g in groups if g != "workflow"]
     for group in groups:
         _GROUP_REGISTRATIONS[group]()
+
+    if getattr(cfg, "profile_version", 2) == 3:
+        from . import databases
+
+        databases.register()

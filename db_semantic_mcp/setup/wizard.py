@@ -210,13 +210,33 @@ def _gather_connection(name, previous, directory, input_fn, password_fn, *, read
         provider_fields = {"database_type": "sqlserver"}
         server = _ask(input_fn, "SQL Server 主機", previous.server if previous else "")
         port = _port(input_fn, previous.port if previous else 1433)
-        database = _ask(input_fn, "資料庫名稱", previous.database if previous else "")
+        database = (
+            (previous.database if previous else "master")
+            if hasattr(input_fn, "checkbox")
+            else _ask(input_fn, "資料庫名稱", previous.database if previous else "")
+        )
     user = _ask(input_fn, "帳號", previous.user if previous else "")
     password = password_fn("密碼" + (" [Enter 沿用]" if previous and previous.credential else "") + "：")
     if not password and previous and previous.credential:
         password = read_password(previous.credential, directory)
     while not password:
         password = password_fn("密碼不得為空，請重新輸入：")
+    if provider == "sqlserver" and hasattr(input_fn, "checkbox"):
+        from .sqlserver_wizard import gather_databases
+
+        candidate = previous.model_dump() if previous else {}
+        if candidate.get("format_version", 2) == 2:
+            candidate.pop("databases", None)
+        candidate.update(name=name, server=server, port=port, database=database, user=user, credential=None)
+        selected = gather_databases(
+            ConnectionProfile.model_validate(candidate),
+            password,
+            input_fn,
+            getattr(input_fn, "emit", print),
+            existing_databases=(list(previous.databases) if previous else []),
+        )
+        provider_fields.update(format_version=3, databases=selected.databases)
+        database = selected.database
     if readonly is None:
         readonly = not _confirm(
             input_fn,
@@ -229,6 +249,8 @@ def _gather_connection(name, previous, directory, input_fn, password_fn, *, read
         default=bool(previous and previous.execution_recording_enabled),
     )
     fields = previous.model_dump() if previous else {}
+    if fields.get("format_version", 2) == 2:
+        fields.pop("databases", None)
     fields.update(provider_fields)
     fields.update(
         name=name,
@@ -443,6 +465,11 @@ def _collect_drafts(root, clients, input_fn, password_fn, emit, tool_profile) ->
         )
         if profile is not None:
             emit(f"{name}：{'唯讀' if profile.readonly else '受限寫入'}，輸出上限 {profile.max_response_bytes} bytes。")
+            if profile.format_version == 3:
+                emit(f"一個 MCP；Database：{'、'.join(profile.databases)}；啟動驗證：{profile.database}。")
+                emit("跨庫 SELECT 僅限明確勾選的 Database，並受共同與每庫 policy scope 限制。")
+                if previous:
+                    emit("更新會保留既有 schema/table、deny 與更嚴格限制；新增 Database 也受這些限制。")
             source_scopes = {}
             if profile.database_type == "oracle":
                 from .oracle_wizard import select_sources
@@ -532,7 +559,7 @@ def run_setup(
             for draft in drafts:
                 p = draft.profile
                 emit(
-                    f"  {p.name}: {p.server}:{p.port}/{p.database}；{'唯讀' if p.readonly else '受限寫入'}；{p.max_response_bytes} bytes"
+                    f"  {p.name}: {p.server}:{p.port}/{'、'.join(p.databases or [p.database])}；啟動 {p.database}；{'唯讀' if p.readonly else '受限寫入'}；{p.max_response_bytes} bytes"
                 )
         labels = "、".join(target.label for target in targets)
         if not _confirm(input_fn, f"套用至 {labels}？", default=True):

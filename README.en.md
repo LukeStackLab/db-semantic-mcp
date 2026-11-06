@@ -68,6 +68,24 @@ Default profile roots:
 
 Passwords use the system keyring. On macOS/Linux, explicit consent can enable a private plaintext fallback (directory `0700`, file `0600`). Windows uses keyring. Environment credential references are available for manual profiles. Existing environment startup remains available; see [.env.example](.env.example).
 
+## Multiple SQL Server databases in one MCP
+
+The interactive installer can register one MCP entry for several databases on the same SQL Server using one login. Select databases with Space, then select the bootstrap database. Discovery lists visible, connectable non-system databases; a manual-name option is available. v3 needs `VIEW DEFINITION` and `ALTER ANY SECURITY POLICY` on each database plus actual data permissions, to prove catalog visibility including security policies hidden by object-level DENY. The latter is a powerful permission; setup never grants it automatically, and refuses incomplete metadata visibility. An administrator must evaluate an appropriate login.
+
+Use the v3 [connection example](config/connection.sqlserver.multi.example.json) and matching [policy](config/policy.sqlserver.multi.example.json). Save them as private `connection.json` and `policy.json`, set the password environment reference, and run `serve --config /absolute/path/connection.json`. Existing v2 single-database and Oracle configurations remain supported.
+
+```text
+list_databases()
+get_tables(database="ERP")
+plan_or_execute_query(database="ERP", query="SELECT o.OrderId, c.CustomerName FROM ERP.dbo.Orders o JOIN CRM.sales.Customers c ON o.CustomerId=c.CustomerId")
+```
+
+Multi-database requests must specify `database`; the profile's bootstrap database is not a request default. Every tool profile includes `list_databases` in v3. This offline tool lists only the configured and policy-authorized intersection. Global and per-database object scopes both apply. Native cross-database SELECT uses three-part names; the executing connection verifies every source and supported view/synonym chain. Unproven metadata, unauthorized databases, linked servers and cross-database writes are refused. Computed/custom-type/external/RLS-backed sources without safe evidence are refused. v3 writes require a direct physical table in the starting database. Targets with triggers, defaults, checks, foreign keys, bound rules or temporal behavior are conservatively refused until their implicit work can be proved; writes through views or synonyms are also refused. Caller SQL is never rewritten and collation conflicts are not automatically corrected.
+
+Each request binds its own database, policy snapshot and cache namespace. Metrics and optional execution recording belong to that database; a cross-database query is recorded once under its starting database. Authorized query responses include `referenced_databases`. Relationship discovery remains local to the selected database.
+
+Resources accept `?database=ERP`, for example `semantic://summary/database?database=ERP`. `doctor --config PATH` checks each authorized database; add `--database ERP` to check one. Failures return a nonzero exit status. Other databases initialize lazily; one unavailable non-bootstrap database does not terminate the MCP service.
+
 ## Oracle connection and source rules
 
 Choose exactly one `oracle.service_name`, `oracle.sid` or `oracle.dsn`. Service/SID also require `server` and `port`. TNS aliases require a suitable `config_dir`; never embed credentials in DSN. `database` identifies the connection/cache, while the Oracle option selects its service or SID.

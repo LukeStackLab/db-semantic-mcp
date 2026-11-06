@@ -1,0 +1,13 @@
+{
+  "format_version": 3,
+  "database_type": "sqlserver",
+  "name": "business",
+  "server": "sql.example.internal",
+  "port": 1433,
+  "user": "reader",
+  "database": "ERP",
+  "databases": ["ERP", "CRM"],
+  "readonly": true,
+  "encrypt": true,
+  "credential": {"storage": "env", "key": "BUSINESS_DB_PASSWORD"}
+}

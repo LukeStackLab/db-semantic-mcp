@@ -72,12 +72,45 @@ class QueryService:
         self._cfg = cfg or get_config()
         self._backend = backend_for(self._cfg)
 
+    def _validate_request(self, sql, database, *, conn=None, resolve_sources=True):
+        validation = self._policy.validate(
+            sql,
+            database=database,
+            **({"resolve_sources": resolve_sources} if self._cfg.database_type == "oracle" else {}),
+        )
+        if self._cfg.database_type != "sqlserver" or self._cfg.profile_version != 3:
+            return validation
+        if database != self._cfg.database:
+            return {**validation, "allowed": False, "reason": "Database must match the bound request context"}
+        if not validation["allowed"] or not resolve_sources:
+            return validation
+        from .sqlserver_database_proof import authorize_cross_database_query
+
+        try:
+            if conn is None:
+                with open_connection(self._cfg) as connection:
+                    names = authorize_cross_database_query(self._cfg, self._policy.current_policy(), connection, sql)
+            else:
+                names = authorize_cross_database_query(self._cfg, self._policy.current_policy(), conn, sql)
+            validation["referenced_databases"] = names
+        except Exception:  # noqa: BLE001 (driver/catalog details must not escape)
+            validation.update(
+                allowed=False,
+                reason="SQL Server source, Database or operation cannot be authorized",
+                denial={
+                    "stage": "sqlserver_policy",
+                    "rule": "database_source_scope",
+                    "message": "Live source metadata is unavailable or outside the authorized scope",
+                },
+            )
+        return validation
+
     # ------------------------------------------------------------------ 1. validate
 
     def validate_query(self, sql: str, database: str = "") -> dict:
         """Return validation + intent, agent-envelope friendly."""
         db = database or self._cfg.database
-        validation = self._policy.validate(sql, database=db)
+        validation = self._validate_request(sql, db)
         intent = validation["intent"]
         next_action = "execute" if validation["allowed"] else "revise_query"
         return {
@@ -86,6 +119,11 @@ class QueryService:
             "reason": validation["reason"],
             "intent": intent,
             **({"denial": validation["denial"]} if "denial" in validation else {}),
+            **(
+                {"referenced_databases": validation["referenced_databases"]}
+                if "referenced_databases" in validation
+                else {}
+            ),
             "risk": intent["risk_level"],
             "tables": intent["affected_tables"],
             "next_action": next_action,
@@ -103,7 +141,7 @@ class QueryService:
         """Cheap dry-run: return what WOULD happen, without side effects."""
         db = database or self._cfg.database
         policy = self._policy.current_policy()
-        validation = self._policy.validate(sql, database=db)
+        validation = self._validate_request(sql, db)
         intent = validation["intent"]
         limit = min(max_rows or policy.constraints.max_rows_returned, policy.constraints.max_rows_returned)
 
@@ -114,6 +152,11 @@ class QueryService:
             "allowed": validation["allowed"],
             "reason": validation["reason"],
             **({"denial": validation["denial"]} if "denial" in validation else {}),
+            **(
+                {"referenced_databases": validation["referenced_databases"]}
+                if "referenced_databases" in validation
+                else {}
+            ),
             "risk": intent["risk_level"],
             "max_rows_applied": limit,
             "max_rows_affected": policy.constraints.max_rows_affected,
@@ -159,11 +202,7 @@ class QueryService:
         policy = self._policy.current_policy()
         limit = min(max_rows or policy.constraints.max_rows_returned, policy.constraints.max_rows_returned)
 
-        validation = (
-            self._policy.validate(sql, database=db, resolve_sources=False)
-            if self._cfg.database_type == "oracle"
-            else self._policy.validate(sql, database=db)
-        )
+        validation = self._validate_request(sql, db, resolve_sources=False)
         denial = self._execution_denial(validation)
         if denial is not None:
             return denial
@@ -211,6 +250,11 @@ class QueryService:
                     denial = self._execution_denial(validation)
                     if denial is not None:
                         return denial
+                if self._cfg.database_type == "sqlserver" and self._cfg.profile_version == 3:
+                    validation = self._validate_request(sql, self._cfg.database, conn=conn)
+                    denial = self._execution_denial(validation)
+                    if denial is not None:
+                        return denial
                 cursor = conn.cursor()
                 try:
                     result_schema = None
@@ -236,6 +280,8 @@ class QueryService:
 
                     if op == "SELECT":
                         result = self._shape_select(cursor, limit, validation)
+                        if "referenced_databases" in validation:
+                            result["referenced_databases"] = validation["referenced_databases"]
                         if result_schema is not None:
                             self._attach_result_schema(result, result_schema)
                         return result
@@ -247,6 +293,8 @@ class QueryService:
                         strict_cap,
                         validation,
                     )
+                    if "referenced_databases" in validation:
+                        result["referenced_databases"] = validation["referenced_databases"]
                     return result
                 finally:
                     try:
@@ -299,6 +347,8 @@ class QueryService:
             secret = os.environ.get(self._cfg.oracle.wallet_password_env)
             if secret:
                 message = message.replace(secret, "***")
+        if self._cfg.database_type == "sqlserver" and self._cfg.profile_version == 3:
+            return "SQL Server database operation failed"
         if self._cfg.database_type == "oracle":
             # Oracle errors can include connect descriptors, wallet paths and SQL.
             return "Oracle database operation failed"

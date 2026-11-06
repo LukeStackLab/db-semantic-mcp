@@ -29,11 +29,14 @@ class PolicyConstraints(_PolicyModel):
     query_timeout_seconds: int = Field(default=30, ge=1)
 
 
-class SourceScope(_PolicyModel):
-    allowed_databases: list[str] = Field(default_factory=list)
+class DatabaseScope(_PolicyModel):
     allowed_schemas: list[str] = Field(default_factory=list)
     allowed_tables: list[str] = Field(default_factory=list)
     denied_tables: list[str] = Field(default_factory=list)
+
+
+class SourceScope(DatabaseScope):
+    allowed_databases: list[str] = Field(default_factory=list)
 
 
 class RemoteSourceScope(SourceScope):
@@ -41,6 +44,7 @@ class RemoteSourceScope(SourceScope):
 
 
 class PolicyScope(SourceScope):
+    database_scopes: dict[str, DatabaseScope] = Field(default_factory=dict)
     sources: dict[str, RemoteSourceScope] = Field(default_factory=dict)
 
 

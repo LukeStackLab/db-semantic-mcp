@@ -1,0 +1,16 @@
+{
+  "active_profile": "readonly",
+  "profiles": {
+    "readonly": {
+      "profile_name": "readonly",
+      "operations": {"select": true},
+      "scope": {
+        "allowed_databases": ["ERP", "CRM"],
+        "database_scopes": {
+          "ERP": {"allowed_schemas": ["dbo"]},
+          "CRM": {"allowed_schemas": ["sales"]}
+        }
+      }
+    }
+  }
+}
