@@ -41,6 +41,11 @@ async def _startup() -> asyncio.Task | None:
     )
 
     get_context()  # Bind effective policy/cache identity before any cache or DB work.
+    if cfg.profile_version == 3:
+        from .infrastructure.workers import run_db_work
+        from .setup.checks import check_connection
+
+        await run_db_work(cfg, check_connection, cfg)
     await init_store(cfg.cache_path)
 
     bg_task: asyncio.Task | None = None

@@ -42,6 +42,10 @@ uv run pytest tests/integration/test_live_multi_database.py -q
 
 測試只建立、使用、刪除自己的隨機名稱資料庫。測試登入需要建立測試物件與執行清理的權限；產品正常使用不需要資料庫建立權限。不應使用業務資料庫或正式環境作為這個測試目標。
 
+## 安裝套件驗證
+
+以建置完成的 wheel 安裝到獨立的 Python 3.11.16 測試環境，保留 Oracle extra。已確認新 runtime、SQL source proof、Oracle driver 均可匯入，v3 profile 與 policy 可建立。此測試未改動使用者的全域安裝。
+
 ## 可重跑檢查
 
 ```bash
@@ -52,4 +56,4 @@ uv lock --check
 uv build
 ```
 
-本次結果：`uv run pytest -q` 為 **1122 passed, 16 skipped**。16 個 skipped 為未啟用的 disposable integration tests，包含新增跨庫與低權限 RLS 案例。Ruff、format、lock、Git diff whitespace 檢查及 sdist／wheel build 通過。真實 MCP stdio 測試已通過，真實 SQL Server 認證尚未執行。
+本次結果：`uv run pytest -q` 為 **1126 passed, 16 skipped**。16 個 skipped 為未啟用的 disposable integration tests，包含新增跨庫與低權限 RLS 案例。Ruff、format、lock、Git diff whitespace 檢查及 sdist／wheel build 通過。真實 MCP stdio 測試已通過，真實 SQL Server 認證尚未執行。
