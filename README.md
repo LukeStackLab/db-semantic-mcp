@@ -40,7 +40,7 @@ db-semantic-mcp setup
 db-semantic-mcp setup --tool-profile explore
 ```
 
-精靈使用繁體中文。選擇 Client、資料庫類型與 MCP 名稱，再輸入端點及憑證。選擇唯讀或受限寫入，最後確認摘要。Oracle 支援 Thin／Thick、service／SID／TNS、TLS，以及明確授權既有 DB link。精靈只測試登入、metadata 與 MCP 握手，不寫入資料測試權限。Client 設定合併前會備份。Claude Code 請在目標專案執行精靈。完成後重新載入 MCP 設定。
+精靈使用繁體中文，提供彩色階段標示、連線摘要與驗證進度。所有選項以 ↑／↓ 移動、Enter 確認；Client 可用 Space 勾選多個，至少選一個。只有名稱、端點、帳號、路徑等欄位需要文字輸入，密碼隱藏顯示。Ctrl+C 可取消；`NO_COLOR=1` 可停用色彩。也可重複指定 `--client`，例如 `setup --client codex --client claude-code --client claude-desktop`。`--client-config` 僅限單一 Client。選擇唯讀或受限寫入，最後確認摘要。Oracle 支援 Thin／Thick、service／SID／TNS、TLS，以及明確授權既有 DB link。精靈只測試登入、metadata 與 MCP 握手，不寫入資料測試權限。Client 設定合併前會備份。Claude Code 請在目標專案執行精靈。完成後重新載入 MCP 設定。
 
 每組連線使用獨立 process、憑證參照、policy 與 cache。以不同名稱建立 `erp_prod`、`oracle_test`、`reporting`，再於對話指定要用的 MCP server。固定 profile 不受 cwd `.env` 或繼承的 `SEMANTIC_MCP_*` 設定影響。
 

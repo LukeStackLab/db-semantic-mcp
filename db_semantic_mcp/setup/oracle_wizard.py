@@ -6,11 +6,16 @@ from .files import SetupError
 
 
 def gather_options(previous, input_fn):
-    from .wizard import _ask, _confirm, _port
+    from .wizard import _ask, _choose, _confirm, _port
 
     old = previous.oracle if previous else None
     while True:
-        mode = _ask(input_fn, "Oracle driver mode（thin/thick）", old.driver_mode if old else "thin").lower()
+        mode = _choose(
+            input_fn,
+            "Oracle driver mode",
+            [("Thin · 不需 Oracle Client", "thin"), ("Thick · 使用 Oracle Client", "thick")],
+            old.driver_mode if old else "thin",
+        )
         if mode in {"thin", "thick"}:
             break
     values = {
@@ -27,7 +32,12 @@ def gather_options(previous, input_fn):
     )
     default_kind = "dsn" if old and old.dsn else "sid" if old and old.sid else "service"
     while True:
-        kind = _ask(input_fn, "連線方式（service/sid/dsn）", default_kind).lower()
+        kind = _choose(
+            input_fn,
+            "連線方式",
+            [("Service name", "service"), ("SID", "sid"), ("TNS alias / DSN", "dsn")],
+            default_kind,
+        )
         if kind in {"service", "sid", "dsn"}:
             break
     if kind == "dsn":
@@ -72,7 +82,7 @@ def gather_options(previous, input_fn):
 
 def select_sources(profile, links, input_fn, emit):
     from ..policy.intents.oracle_analyzer import oracle_identifier
-    from .wizard import _ask, _confirm
+    from .wizard import _ask, _choose, _confirm
 
     if not links or not _confirm(input_fn, "選用既有 Oracle DB link 作為探索來源？"):
         return profile, {}
@@ -80,11 +90,7 @@ def select_sources(profile, links, input_fn, emit):
     scopes = {}
     names = sorted({row["db_link"] for row in links})
     while True:
-        for index, name in enumerate(names, 1):
-            emit(f"  {index}. {name}")
-        choice = _ask(input_fn, "DB link 編號", "1")
-        if not choice.isdigit() or not 1 <= int(choice) <= len(names):
-            continue
+        choice = _choose(input_fn, "選擇 DB link", [(name, name) for name in names], names[0])
         source = _ask(input_fn, "來源 id（英數、底線或連字號）")
         if source == "local" or source in routes:
             emit("來源 id 已存在或為保留名稱。")
@@ -97,7 +103,7 @@ def select_sources(profile, links, input_fn, emit):
                 raise ValueError("At least one explicit schema is required")
             for schema in schemas:
                 oracle_identifier(schema)
-            route = RemoteSource(db_link=names[int(choice) - 1], readonly=True)
+            route = RemoteSource(db_link=choice, readonly=True)
             candidate = profile.model_dump()
             candidate["sources"] = {**routes, source: route}
             from ..profiles import ConnectionProfile

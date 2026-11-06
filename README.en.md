@@ -38,7 +38,7 @@ db-semantic-mcp setup
 db-semantic-mcp setup --tool-profile explore
 ```
 
-Prompts are currently Traditional Chinese. Select the client and database provider, name the connection, enter the endpoint and credentials, choose read-only or limited writes, then confirm the concrete summary. Oracle prompts cover Thin/Thick, service/SID/TNS, TLS and explicitly authorized existing DB links. The wizard checks metadata and MCP initialization without testing writes. It backs up client files before merging entries. For Claude Code, run it in the intended project. Reload MCP settings after setup.
+The Traditional Chinese installer provides colored stages, connection summaries and verification spinners. Use Up/Down and Enter for choices; use Space to select multiple MCP clients (at least one). Only free-form fields require typing; passwords are masked. Ctrl+C cancels, and `NO_COLOR=1` disables colors. You can also repeat `--client`, for example `setup --client codex --client claude-code --client claude-desktop`. `--client-config` requires a single client. Choose read-only or limited writes, then confirm the summary. Oracle prompts cover Thin/Thick, service/SID/TNS, TLS and explicitly authorized existing DB links. The wizard checks metadata and MCP initialization without testing writes. It backs up client files before merging entries. For Claude Code, run it in the intended project. Reload MCP settings after setup.
 
 Each connection gets a separate process, credential reference, policy and cache. Use distinct names such as `erp_prod`, `oracle_test` and `reporting`. Ask the agent to use the corresponding MCP server. Profiles ignore inherited `SEMANTIC_MCP_*` values and cwd `.env`.
 

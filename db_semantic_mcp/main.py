@@ -109,7 +109,12 @@ def main(argv: list[str] | None = None) -> None:
     commands = parser.add_subparsers(dest="command")
     setup = commands.add_parser("setup", help="互動式安裝與配置")
     setup.add_argument("--config-dir", type=Path, help="連線配置根目錄")
-    setup.add_argument("--client", choices=["codex", "claude-code", "claude-desktop", "cursor"])
+    setup.add_argument(
+        "--client",
+        action="append",
+        help="指定 Client，可重複",
+        choices=["codex", "claude-code", "claude-desktop", "cursor"],
+    )
     setup.add_argument("--client-config", type=Path, help="指定 Client 設定檔")
     setup.add_argument(
         "--tool-profile",

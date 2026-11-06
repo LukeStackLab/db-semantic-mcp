@@ -4,6 +4,7 @@ import getpass
 import os
 import sys
 import warnings
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -47,12 +48,18 @@ from .files import (
 
 def _ask(input_fn, label: str, default: str = "") -> str:
     while True:
-        value = input_fn(f"{label}" + (f" [{default}]" if default else "") + "：").strip()
+        value = (
+            input_fn.text(label, default)
+            if hasattr(input_fn, "text")
+            else input_fn(f"{label}" + (f" [{default}]" if default else "") + "：")
+        ).strip()
         if value or default:
             return value or default
 
 
 def _confirm(input_fn, label: str, default: bool = False) -> bool:
+    if hasattr(input_fn, "confirm"):
+        return input_fn.confirm(label, default)
     while True:
         value = input_fn(f"{label} [{'Y/n' if default else 'y/N'}]：").strip().lower()
         if not value:
@@ -70,32 +77,62 @@ def _port(input_fn, default: int) -> int:
             return int(value)
 
 
-def _select_client(client, client_config, input_fn, emit) -> ClientTarget:
+def _choose(input_fn, label, choices, default=None):
+    if hasattr(input_fn, "select"):
+        return input_fn.select(label, choices, default)
+    # Injectable text input supports programmatic callers and tests.
+    while True:
+        value = _ask(input_fn, label, str(default) if default is not None else "")
+        for index, (_, candidate) in enumerate(choices, 1):
+            if value == str(candidate) or value == str(index):
+                return candidate
+
+
+def _stage(input_fn, number, title):
+    if hasattr(input_fn, "stage"):
+        input_fn.stage(number, title)
+
+
+def _busy(input_fn, label):
+    return input_fn.status(label) if hasattr(input_fn, "status") else nullcontext()
+
+
+def _select_clients(client, client_config, input_fn, emit) -> list[ClientTarget]:
     targets = client_targets()
     if client:
-        matching = [t for t in targets if t.name == client]
-        if not matching:
-            raise SetupError("目前平台不支援此 Client 的預設路徑。")
-        target = matching[0]
+        names = [client] if isinstance(client, str) else list(dict.fromkeys(client))
+        selected = []
+        for name in names:
+            matching = [t for t in targets if t.name == name]
+            if not matching:
+                raise SetupError("目前平台不支援此 Client 的預設路徑。")
+            selected.append(matching[0])
     else:
-        detected = [t for t in targets if t.detected]
-        if len(detected) == 1:
-            target = detected[0]
-            emit(f"偵測到 {target.label}。")
+        ordered = sorted(targets, key=lambda t: not t.detected)
+        choices = [(t.label + ("（已偵測）" if t.detected else ""), t.name) for t in ordered]
+        if hasattr(input_fn, "checkbox"):
+            names = input_fn.checkbox("要配置哪些 MCP Client？", choices)
+            selected = [t for t in ordered if t.name in names]
         else:
-            ordered = sorted(targets, key=lambda t: not t.detected)
-            emit("選擇要配置的 MCP Client：")
-            for n, item in enumerate(ordered, 1):
-                emit(f"  {n}. {item.label}" + ("（已偵測）" if item.detected else ""))
+            emit("選擇要配置的 MCP Client（可用逗號分隔多選）：")
+            for n, (label, _) in enumerate(choices, 1):
+                emit(f"  {n}. {label}")
             while True:
-                choice = _ask(input_fn, "Client", "1")
-                if choice.isdigit() and 1 <= int(choice) <= len(ordered):
-                    target = ordered[int(choice) - 1]
+                values = _ask(input_fn, "Client", "1").split(",")
+                if all(v.strip().isdigit() and 1 <= int(v) <= len(ordered) for v in values):
+                    selected = list(dict.fromkeys(ordered[int(v) - 1] for v in values))
                     break
+    if not selected:
+        raise SetupError("請至少選擇一個 Client。")
     if client_config:
-        target = replace(target, path=client_config.expanduser().absolute())
-    emit(f"Client 設定：{target.path}")
-    return target
+        if len(selected) != 1:
+            raise SetupError("--client-config 僅能搭配單一 Client，請分別執行或使用預設路徑。")
+        selected = [replace(selected[0], path=client_config.expanduser().absolute())]
+    if len({t.path.absolute() for t in selected}) != len(selected):
+        raise SetupError("多個 Client 不得共用同一個設定檔。")
+    for target in selected:
+        emit(f"{target.label} 設定：{target.path}")
+    return selected
 
 
 @dataclass
@@ -161,7 +198,7 @@ class Applied:
 def _gather_connection(name, previous, directory, input_fn, password_fn, *, readonly=None):
     provider = previous.database_type if previous else None
     while provider is None:
-        choice = _ask(input_fn, "資料庫類型（sqlserver/oracle）", "sqlserver").lower()
+        choice = _choose(input_fn, "資料庫類型", [("SQL Server", "sqlserver"), ("Oracle", "oracle")], "sqlserver")
         if choice in {"sqlserver", "oracle"}:
             provider = choice
     if provider == "oracle":
@@ -264,7 +301,8 @@ def _apply(draft: Draft, input_fn, emit) -> Applied:
                 raise SetupError("已選 Oracle 來源無法通過 policy、route 或 catalog 檢查。")
         applied = Applied(draft, reference, written, receipts)
         emit(f"正在驗證 {profile.name} 的 MCP 啟動與握手……")
-        applied.tools = check_mcp(directory / "connection.json")
+        with _busy(input_fn, "正在驗證 MCP 握手與工具…"):
+            applied.tools = check_mcp(directory / "connection.json")
         return applied
     except BaseException:
         if reference is not None:
@@ -286,7 +324,11 @@ def _prepare_setup(root, input_fn, password_fn, tool_profile):
     interactive = input_fn is None
     if interactive and not sys.stdin.isatty():
         raise SetupError("setup 需要互動式終端機。請直接在終端機執行此指令。")
-    input_fn = input_fn or input
+    if interactive:
+        from .terminal import TerminalUI
+
+        input_fn = TerminalUI()
+        password_fn = password_fn or input_fn.password
     password_fn = password_fn or getpass.getpass
     root = (root or default_config_root()).expanduser().absolute()
     if tool_profile is not None:
@@ -296,7 +338,7 @@ def _prepare_setup(root, input_fn, password_fn, tool_profile):
     return input_fn, password_fn, root
 
 
-def _ask_connection_name(root, target, original_client, drafts, input_fn, emit):
+def _ask_connection_name(root, clients, drafts, input_fn, emit):
     while True:
         name = _ask(input_fn, "MCP 名稱")
         try:
@@ -314,7 +356,8 @@ def _ask_connection_name(root, target, original_client, drafts, input_fn, emit):
                 child.name.casefold() == name.casefold() and child.name != name for child in root.iterdir()
             ):
                 raise SetupError("名稱大小寫與既有配置衝突，請使用既有名稱。")
-            merge_servers(target, original_client, {name: server_entry(path)})
+            for target, original_client in clients:
+                merge_servers(target, original_client, {name: server_entry(path)})
             previous = read_profile(path) if read_snapshot(path) is not None else None
             if previous and previous.name != name:
                 raise SetupError("既有配置名稱與目錄不一致，請先修正或使用新名稱。")
@@ -343,7 +386,8 @@ def _collect_connection(name, previous, directory, input_fn, password_fn, emit, 
                 # The final fixed profile is checked again after atomic writes.
                 probe_cfg.connection_name = None
                 probe_cfg.policy_profile = None
-            result = check_connection(probe_cfg)
+            with _busy(input_fn, "正在測試登入與 metadata 存取…"):
+                result = check_connection(probe_cfg)
             emit(f"連線成功，可見 {result['visible_tables']} 張資料表。")
             return profile, password, result
         except SetupError as exc:
@@ -371,13 +415,12 @@ def _apply_drafts(drafts, input_fn, emit, applied) -> int:
     return failed
 
 
-def _collect_drafts(root, target, original_client, input_fn, password_fn, emit, tool_profile) -> list[Draft]:
+def _collect_drafts(root, clients, input_fn, password_fn, emit, tool_profile) -> list[Draft]:
     drafts: list[Draft] = []
     while True:
         directory, path, previous = _ask_connection_name(
             root,
-            target,
-            original_client,
+            clients,
             drafts,
             input_fn,
             emit,
@@ -417,17 +460,37 @@ def _collect_drafts(root, target, original_client, input_fn, password_fn, emit, 
     return drafts
 
 
-def _register_with_client(target, original_client, applied: list[Applied], emit) -> str | None:
+def _register_with_clients(clients, applied: list[Applied], emit) -> list[Path]:
     for item in applied:
         item.verify()
     entries = {a.draft.profile.name: server_entry(a.draft.directory / "connection.json") for a in applied}
-    merged_client = merge_servers(target, original_client, entries)
-    client_receipt = {}
+    # Validate every merge before writing the first client.
+    writes = [(target, original, merge_servers(target, original, entries), {}) for target, original in clients]
+    attempted = []
+    backups = []
     try:
-        return register_servers(target, entries, original_client, receipt=client_receipt)
+        for target, original, merged, receipt in writes:
+            attempted.append((target, original, merged, receipt))
+            backup = register_servers(target, entries, original, receipt=receipt)
+            if backup:
+                backups.append(backup)
+        return backups
     except BaseException:
-        restore_owned(target.path, original_client, merged_client, client_receipt.get("identity"))
-        _rollback(applied, emit)
+        conflicts = []
+        for target, original, merged, receipt in reversed(attempted):
+            if not receipt.get("identity"):
+                continue  # This attempt never reached the write; nothing belongs to us.
+            try:
+                if not restore_owned(target.path, original, merged, receipt.get("identity")):
+                    conflicts.append(str(target.path))
+            except (SetupError, OSError):
+                conflicts.append(str(target.path))
+        if conflicts:
+            emit("Client 已由其他程序修改或無法復原，已保留其設定與本次連線配置：")
+            for path in conflicts:
+                emit(path)
+        else:
+            _rollback(applied, emit)
         applied.clear()
         raise
 
@@ -435,7 +498,7 @@ def _register_with_client(target, original_client, applied: list[Applied], emit)
 def run_setup(
     *,
     root: Path | None = None,
-    client: str | None = None,
+    client: str | list[str] | None = None,
     client_config: Path | None = None,
     input_fn=None,
     password_fn=None,
@@ -446,41 +509,55 @@ def run_setup(
     applied: list[Applied] = []
     registered = False
     try:
+        if hasattr(input_fn, "welcome"):
+            input_fn.welcome()
+            if emit is print:
+                emit = input_fn.emit
         emit("DB Semantic MCP 安裝精靈：每組配置使用獨立程序、policy 與快取。")
-        target = _select_client(client, client_config, input_fn, emit)
-        original_client = read_snapshot(target.path)
-        parse_client(target, original_client)
-        drafts = _collect_drafts(root, target, original_client, input_fn, password_fn, emit, tool_profile)
+        _stage(input_fn, 1, "選擇 MCP Clients")
+        targets = _select_clients(client, client_config, input_fn, emit)
+        clients = [(target, read_snapshot(target.path)) for target in targets]
+        for target, original in clients:
+            parse_client(target, original)
+        _stage(input_fn, 2, "設定資料庫連線")
+        drafts = _collect_drafts(root, clients, input_fn, password_fn, emit, tool_profile)
         if not drafts:
             emit("沒有可套用的配置。")
             return 1
-        emit("準備建立或更新以下獨立 MCP：")
-        for draft in drafts:
-            p = draft.profile
-            emit(
-                f"  {p.name}: {p.server}:{p.port}/{p.database}；{'唯讀' if p.readonly else '受限寫入'}；{p.max_response_bytes} bytes"
-            )
-        if not _confirm(input_fn, f"套用至 {target.label}？", default=True):
+        _stage(input_fn, 3, "確認與套用")
+        if hasattr(input_fn, "summary"):
+            input_fn.summary(drafts, targets)
+        else:
+            emit("準備建立或更新以下獨立 MCP：")
+            for draft in drafts:
+                p = draft.profile
+                emit(
+                    f"  {p.name}: {p.server}:{p.port}/{p.database}；{'唯讀' if p.readonly else '受限寫入'}；{p.max_response_bytes} bytes"
+                )
+        labels = "、".join(target.label for target in targets)
+        if not _confirm(input_fn, f"套用至 {labels}？", default=True):
             emit("已取消，未修改配置與 Client 設定。")
             return 0
         failed = _apply_drafts(drafts, input_fn, emit, applied)
         if not applied:
             return 1
-        backup = _register_with_client(target, original_client, applied, emit)
+        with _busy(input_fn, "正在註冊 MCP Clients…"):
+            backups = _register_with_clients(clients, applied, emit)
         registered = True
+        _stage(input_fn, 4, "安裝完成")
         for item in applied:
             item.finalize()
             emit(f"完成 {item.draft.profile.name}：MCP 握手成功，{item.tools} 個工具。")
             emit(f"  配置：{item.draft.directory / 'connection.json'}")
-        if backup:
+        for backup in backups:
             emit(f"原 Client 設定備份：{backup}")
-        emit(f"已註冊 {len(applied)} 個獨立 MCP。請在 {target.label} 重新載入 MCP 設定或重新啟動 Client。")
+        emit(f"已註冊 {len(applied)} 個獨立 MCP。請在 {labels} 重新載入 MCP 設定或重新啟動 Client。")
         emit("Agent 可依 MCP 名稱選用連線；每個程序固定自己的配置。")
         return 1 if failed else 0
     except (KeyboardInterrupt, EOFError):
         if not registered:
             _rollback(applied, emit)
-            emit("已取消，未修改 Client 設定。")
+            emit("已取消設定流程。")
         else:
             emit("設定已套用，已停止輸出。")
         return 130

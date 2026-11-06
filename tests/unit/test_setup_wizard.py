@@ -378,3 +378,170 @@ def test_finalize_preserves_newer_configuration_and_identical_credentials(enviro
     assert run(environment, ["erp", "y", "", "", "", "", "n", "", "n", ""])[0] == 0
     assert (directory / "credentials.json").read_bytes() == secret_bytes
     assert load_profile(directory / "connection.json").password == "NEVER_ECHO_PASSWORD"
+
+
+@pytest.fixture
+def multiple_clients(tmp_path, monkeypatch):
+    from db_semantic_mcp.setup.clients import ClientTarget
+
+    targets = [
+        ClientTarget("codex", "Codex", tmp_path / "config.toml", "toml", True),
+        ClientTarget("claude-code", "Claude Code", tmp_path / ".mcp.json", "json", True),
+        ClientTarget("claude-desktop", "Claude Desktop", tmp_path / "desktop.json", "json", True),
+    ]
+    targets[0].path.write_text('# Keep this comment\ntheme = "dark"\n')
+    targets[1].path.write_text('{"theme":"light","mcpServers":{"existing":{"command":"keep"}}}')
+    monkeypatch.setattr(wizard, "client_targets", lambda: targets)
+    return targets
+
+
+def run_multiple(environment, clients, answers=None):
+    iterator = iter(answers or ["erp", "sqlserver", "sql", "", "ERP", "reader", "n", "", "n", ""])
+    return wizard.run_setup(
+        root=environment[0],
+        client=[t.name for t in clients],
+        input_fn=lambda _: next(iterator),
+        password_fn=lambda _: "secret",
+        emit=lambda _: None,
+    )
+
+
+def test_multiple_clients_share_one_profile(environment, multiple_clients):
+    import tomlkit
+
+    assert run_multiple(environment, multiple_clients) == 0
+    codex = tomlkit.parse(multiple_clients[0].path.read_text())
+    assert codex["theme"] == "dark"
+    assert multiple_clients[0].path.read_text().startswith("# Keep this comment")
+    entry = codex["mcp_servers"]["erp"].unwrap()
+    for target in multiple_clients[1:]:
+        assert json.loads(target.path.read_text())["mcpServers"]["erp"] == entry
+    assert json.loads(multiple_clients[1].path.read_text())["mcpServers"]["existing"] == {"command": "keep"}
+    assert len(environment[2]) == 1
+    assert len(list(environment[0].glob("*/connection.json"))) == 1
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_later_client_failure_restores_all_writes(environment, multiple_clients, monkeypatch, interrupt):
+    before = {t.path: t.path.read_bytes() if t.path.exists() else None for t in multiple_clients}
+    real_register = wizard.register_servers
+
+    def fail(target, *args, **kwargs):
+        result = real_register(target, *args, **kwargs)
+        if target.name == "claude-desktop":
+            if interrupt:
+                raise KeyboardInterrupt
+            raise SetupError("simulated write failure")
+        return result
+
+    monkeypatch.setattr(wizard, "register_servers", fail)
+    if interrupt:
+        assert run_multiple(environment, multiple_clients) == 130
+    else:
+        with pytest.raises(SetupError, match="simulated"):
+            run_multiple(environment, multiple_clients)
+    for path, data in before.items():
+        assert (path.read_bytes() if path.exists() else None) == data
+    assert not (environment[0] / "erp" / "connection.json").exists()
+
+
+def test_rollback_preserves_concurrent_client_and_its_profile(environment, multiple_clients, monkeypatch):
+    real_register = wizard.register_servers
+
+    def fail(target, *args, **kwargs):
+        result = real_register(target, *args, **kwargs)
+        if target.name == "claude-desktop":
+            multiple_clients[0].path.write_text(multiple_clients[0].path.read_text() + '\nexternal = "change"\n')
+            raise SetupError("simulated")
+        return result
+
+    monkeypatch.setattr(wizard, "register_servers", fail)
+    with pytest.raises(SetupError, match="simulated"):
+        run_multiple(environment, multiple_clients)
+    assert 'external = "change"' in multiple_clients[0].path.read_text()
+    assert (environment[0] / "erp" / "connection.json").exists()
+
+
+def test_client_multiselect_reprompts_invalid_text_and_deduplicates(multiple_clients):
+    answers = iter(["1,99", "1,,2", "1, 2,3,1"])
+    assert wizard._select_clients(None, None, lambda _: next(answers), lambda _: None) == multiple_clients
+
+
+def test_custom_client_path_rejects_multiple_clients_before_writes(environment, multiple_clients):
+    with pytest.raises(SetupError, match="單一 Client"):
+        wizard.run_setup(
+            root=environment[0],
+            client=[t.name for t in multiple_clients],
+            client_config=environment[1],
+            input_fn=lambda _: "",
+            emit=lambda _: None,
+        )
+    assert not environment[0].exists()
+
+
+def test_name_conflict_in_later_client_is_checked_before_applying(environment, multiple_clients):
+    multiple_clients[-1].path.write_text('{"mcpServers":{"erp":{"command":"other"}}}')
+    answers = ["erp", "safe", "sqlserver", "sql", "", "ERP", "reader", "n", "", "n", ""]
+    assert run_multiple(environment, multiple_clients, answers) == 0
+    assert not (environment[0] / "erp").exists()
+    assert (environment[0] / "safe" / "connection.json").exists()
+
+
+def test_full_keyboard_installer_with_three_clients(environment, multiple_clients, monkeypatch):
+    from io import StringIO
+
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+    from rich.console import Console
+
+    from db_semantic_mcp.setup.terminal import TerminalUI
+
+    ui = TerminalUI(Console(file=StringIO(), width=80))
+    keys = iter(
+        [
+            " \x1b[B \x1b[B \r",  # Three client checkboxes.
+            "erp\r",
+            "\r",
+            "sql\r",
+            "\r",
+            "ERP\r",
+            "reader\r",
+            "secret\r",
+            "\r",
+            "\r",
+            "\r",
+            "\r",  # Read-only, recording off, no extra connection, apply.
+        ]
+    )
+    prompt = ui._prompt
+    with create_pipe_input() as pipe:
+
+        def keyboard(factory, label, **kwargs):
+            pipe.send_text(next(keys))
+            return prompt(factory, label, input=pipe, output=DummyOutput(), **kwargs)
+
+        monkeypatch.setattr(ui, "_prompt", keyboard)
+        assert wizard.run_setup(root=environment[0], input_fn=ui, password_fn=ui.password) == 0
+    for target in multiple_clients:
+        assert target.path.exists()
+    assert len(environment[2]) == 1
+    output = ui.console.file.getvalue()
+    assert "安裝完成" in output and "Claude Desktop" in output
+    assert "secret" not in output
+    assert load_profile(environment[0] / "erp" / "connection.json").policy_profile == "readonly"
+
+
+def test_repeatable_client_cli_flag(monkeypatch):
+    from db_semantic_mcp.main import main
+
+    received = {}
+
+    def terminal_setup(**kwargs):
+        received.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(wizard, "terminal_setup", terminal_setup)
+    with pytest.raises(SystemExit) as result:
+        main(["setup", "--client", "codex", "--client", "claude-code", "--client", "claude-desktop"])
+    assert result.value.code == 0
+    assert received["client"] == ["codex", "claude-code", "claude-desktop"]
