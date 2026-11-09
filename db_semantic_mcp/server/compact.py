@@ -24,11 +24,12 @@ NULLABLE_FALSE_KEEP: frozenset[str] = frozenset(
         "nullable",
         "optional",
         "automatic_retry_allowed",
+        "selection_required",
     }
 )
 
 NULL_KEEP = frozenset({"total_row_count"})
-EMPTY_KEEP = frozenset({"rows", "sample_rows", "candidates", "column_pairs", "data"})
+EMPTY_KEEP = frozenset({"rows", "sample_rows", "candidates", "column_pairs", "data", "databases"})
 
 
 def _is_falsy_strippable(value: Any) -> bool:

@@ -61,3 +61,31 @@ asyncio.run(run())
             "semantic://summary/database?database=ERP",
             "semantic://summary/database?database=CRM",
         }
+
+
+async def test_stdio_single_database_list_keeps_selection_flag():
+    script = """
+import asyncio
+from mcp.server.stdio import stdio_server
+from db_semantic_mcp.config import Config, configure
+from db_semantic_mcp.policy.models import PolicyProfile
+from db_semantic_mcp.server import app as server
+from db_semantic_mcp.server import database_context
+from db_semantic_mcp.server.tools import register_all
+cfg=Config.from_fixed(server="fixture", database="ERP", databases=["ERP"], profile_version=3, cache_enabled=False, metrics_enabled=False)
+cfg._policy_snapshot=PolicyProfile(profile_name="readonly", scope={"allowed_databases":["ERP"],"database_scopes":{"ERP":{}}})
+configure(cfg)
+async def initialize(ctx): return ctx
+database_context._initialize=initialize
+register_all()
+async def run():
+    async with stdio_server() as (r,w):
+        await server.app.run(r,w,server.app.create_initialization_options())
+asyncio.run(run())
+"""
+    params = StdioServerParameters(command=sys.executable, args=["-I", "-c", script])
+    async with asyncio.timeout(15), stdio_client(params) as (reader, writer), ClientSession(reader, writer) as session:
+        await session.initialize()
+        choices = await session.call_tool("list_databases", {})
+        assert not choices.isError
+        assert choices.structuredContent == {"databases": ["ERP"], "selection_required": False}
