@@ -13,7 +13,7 @@ from ..policy.models import PolicyFile
 from ..policy.scope import parse_scope_entry
 from ..profiles import ConnectionProfile, default_config_root, profile_bytes
 from .checks import check_mcp
-from .clients import ClientTarget, client_targets, parse_client, server_entry
+from .clients import ClientTarget, all_scope_targets, client_targets, parse_client, server_entry
 from .files import SetupError, atomic_write, read_snapshot, restore_owned, snapshot_with_identity
 
 LEGACY_SERVICE = "sqlserver-semantic-mcp"
@@ -162,7 +162,7 @@ def preview_migration(*, legacy_root=None, destination_root=None, clients=None):
         ):
             raise SetupError("目的配置已存在，拒絕覆寫。")
     changes = []
-    for target in clients if clients is not None else client_targets():
+    for target in clients if clients is not None else all_scope_targets():
         original = read_snapshot(target.path)
         if original is None:
             continue
@@ -332,9 +332,10 @@ def cli_migrate(args):
             if args.client not in known:
                 raise SetupError("目前平台不支援該 Client 的預設路徑。")
             target = known[args.client]
-            targets.append(
-                replace(target, path=args.client_config.expanduser().absolute()) if args.client_config else target
-            )
+            if args.client_config:
+                targets.append(replace(target, path=args.client_config.expanduser().absolute()))
+            else:
+                targets.extend(all_scope_targets([target]))  # Project and global locations.
         for value in args.client_path or []:
             name, sep, path = value.partition("=")
             if not sep or name not in known or not path:

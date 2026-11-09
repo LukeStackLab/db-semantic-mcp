@@ -29,6 +29,7 @@ from ..profiles import (
 )
 from .checks import check_connection, check_mcp
 from .clients import (
+    SCOPE_LABELS,
     ClientTarget,
     client_targets,
     merge_servers,
@@ -97,8 +98,9 @@ def _busy(input_fn, label):
     return input_fn.status(label) if hasattr(input_fn, "status") else nullcontext()
 
 
-def _select_clients(client, client_config, input_fn, emit) -> list[ClientTarget]:
+def _select_clients(client, client_config, input_fn, emit, scope=None) -> list[ClientTarget]:
     targets = client_targets()
+    interactive = not client
     if client:
         names = [client] if isinstance(client, str) else list(dict.fromkeys(client))
         selected = []
@@ -128,11 +130,33 @@ def _select_clients(client, client_config, input_fn, emit) -> list[ClientTarget]
         if len(selected) != 1:
             raise SetupError("--client-config 僅能搭配單一 Client，請分別執行或使用預設路徑。")
         selected = [replace(selected[0], path=client_config.expanduser().absolute())]
+    else:
+        selected = [_choose_scope(t, scope, interactive, input_fn, emit) for t in selected]
     if len({t.path.absolute() for t in selected}) != len(selected):
         raise SetupError("多個 Client 不得共用同一個設定檔。")
     for target in selected:
         emit(f"{target.label} 設定：{target.path}")
+        if target.name == "codex" and target.scope == "project":
+            emit("  Codex 只會在已信任（trusted）的專案載入 .codex/config.toml。")
     return selected
+
+
+def _choose_scope(target: ClientTarget, scope, interactive, input_fn, emit) -> ClientTarget:
+    scopes = target.scopes
+    if scope:
+        if scope in scopes:
+            return target.with_scope(scope)
+        if scopes:
+            emit(
+                f"{target.base_label or target.label} 只支援{SCOPE_LABELS[scopes[0]]}設定，改用{SCOPE_LABELS[scopes[0]]}。"
+            )
+        return target
+    if not interactive or len(scopes) < 2:
+        return target
+    choices = [
+        (f"{SCOPE_LABELS[s]}：{target.with_scope(s).path}", s) for s in sorted(scopes, key=lambda s: s != "project")
+    ]
+    return target.with_scope(_choose(input_fn, f"{target.base_label} 的 MCP 要裝在哪裡？", choices, "project"))
 
 
 @dataclass
@@ -527,6 +551,7 @@ def run_setup(
     root: Path | None = None,
     client: str | list[str] | None = None,
     client_config: Path | None = None,
+    scope: str | None = None,
     input_fn=None,
     password_fn=None,
     emit=print,
@@ -542,7 +567,7 @@ def run_setup(
                 emit = input_fn.emit
         emit("DB Semantic MCP 安裝精靈：每組配置使用獨立程序、policy 與快取。")
         _stage(input_fn, 1, "選擇 MCP Clients")
-        targets = _select_clients(client, client_config, input_fn, emit)
+        targets = _select_clients(client, client_config, input_fn, emit, scope)
         clients = [(target, read_snapshot(target.path)) for target in targets]
         for target, original in clients:
             parse_client(target, original)

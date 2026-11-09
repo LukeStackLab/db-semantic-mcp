@@ -129,6 +129,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     setup.add_argument("--client-config", type=Path, help="指定 Client 設定檔")
     setup.add_argument(
+        "--scope",
+        choices=["project", "global"],
+        help="MCP 安裝範圍；搭配 --client 時預設 project，互動選擇 Client 時逐一詢問",
+    )
+    setup.add_argument(
         "--tool-profile",
         choices=["all", "query", "explore", "maintenance"],
         help="選擇此批連線啟用的工具集合；省略時保留既有配置",
@@ -162,6 +167,7 @@ def main(argv: list[str] | None = None) -> None:
                     root=args.config_dir,
                     client=args.client,
                     client_config=args.client_config,
+                    scope=args.scope,
                     tool_profile=args.tool_profile,
                 )
             )
