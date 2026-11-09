@@ -11,6 +11,7 @@ def places(tmp_path, monkeypatch):
     home.mkdir()
     project.mkdir()
     monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("HERMES_HOME", raising=False)
     monkeypatch.setattr(clients.sys, "platform", "darwin")
     targets = client_targets(home=home, cwd=project)
     monkeypatch.setattr(wizard, "client_targets", lambda: targets)
@@ -22,7 +23,7 @@ def test_every_client_defaults_to_project_scope(places):
     assert targets["codex"].path == project / ".codex" / "config.toml"
     assert targets["claude-code"].path == project / ".mcp.json"
     assert targets["cursor"].path == project / ".cursor" / "mcp.json"
-    assert {t.scope for n, t in targets.items() if n != "claude-desktop"} == {"project"}
+    assert {t.scope for n, t in targets.items() if n not in {"claude-desktop", "hermes"}} == {"project"}
     assert targets["codex"].label == "Codex（專案）"
 
 
@@ -40,6 +41,24 @@ def test_claude_desktop_is_global_only(places):
     assert desktop.scopes == ["global"]
     with pytest.raises(SetupError, match="不支援專案"):
         desktop.with_scope("project")
+
+
+def test_hermes_is_global_yaml(places, tmp_path, monkeypatch):
+    home, _, targets = places
+    hermes = targets["hermes"]
+    assert (hermes.path, hermes.format, hermes.scopes) == (home / ".hermes" / "config.yaml", "yaml", ["global"])
+    assert hermes.label == "Hermes Agent（全域）"
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "custom"))
+    relocated = {t.name: t for t in client_targets(home=home, cwd=tmp_path)}["hermes"]
+    assert relocated.path == tmp_path / "custom" / "config.yaml"
+
+
+def test_hermes_project_scope_falls_back_to_global(places):
+    home, _, _ = places
+    messages = []
+    (selected,) = wizard._select_clients(["hermes"], None, None, messages.append, "project")
+    assert selected.path == home / ".hermes" / "config.yaml"
+    assert any("/reload-mcp" in m for m in messages)
 
 
 def test_interactive_selection_asks_scope_per_client(places):

@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> None:
         "--client",
         action="append",
         help="指定 Client，可重複",
-        choices=["codex", "claude-code", "claude-desktop", "cursor"],
+        choices=["codex", "claude-code", "claude-desktop", "cursor", "hermes"],
     )
     setup.add_argument("--client-config", type=Path, help="指定 Client 設定檔")
     setup.add_argument(
@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> None:
     action = migration.add_mutually_exclusive_group()
     action.add_argument("--apply", action="store_true", help="明確套用遷移並驗證 MCP")
     action.add_argument("--dry-run", action="store_true", help="只預覽、不讀取憑證、不寫入；預設行為")
-    migration.add_argument("--client", choices=["codex", "claude-code", "claude-desktop", "cursor"])
+    migration.add_argument("--client", choices=["codex", "claude-code", "claude-desktop", "cursor", "hermes"])
     migration.add_argument("--client-config", type=Path)
     migration.add_argument("--client-path", action="append", help="額外 Client 路徑 CLIENT=PATH，可重複")
     args = parser.parse_args(argv)

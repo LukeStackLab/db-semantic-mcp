@@ -1,5 +1,6 @@
 """MCP client adapters with preserving merges and explicit conflict checks."""
 
+import io
 import json
 import os
 import shutil
@@ -8,10 +9,22 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import tomlkit
+from ruamel.yaml import YAML, YAMLError
+from ruamel.yaml.comments import CommentedMap
 
 from .files import SetupError, atomic_write
 
 SCOPE_LABELS = {"project": "專案", "global": "全域"}
+SERVER_KEYS = {"json": "mcpServers", "toml": "mcp_servers", "yaml": "mcp_servers"}
+
+
+def _yaml() -> YAML:
+    # Round-trip mode keeps comments and key order in the user's config.
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 4096  # Never wrap long absolute paths.
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    return yaml
 
 
 @dataclass(frozen=True)
@@ -49,6 +62,7 @@ def client_targets(home: Path | None = None, cwd: Path | None = None) -> list[Cl
     """Clients default to the current project; ``with_scope`` switches location."""
     home, cwd = home or Path.home(), cwd or Path.cwd()
     codex_root = Path(os.environ.get("CODEX_HOME", str(home / ".codex")))
+    hermes_root = Path(os.environ.get("HERMES_HOME", str(home / ".hermes")))
     targets = [
         _target(
             "codex",
@@ -71,6 +85,14 @@ def client_targets(home: Path | None = None, cwd: Path | None = None) -> list[Cl
             "json",
             (home / ".cursor").exists() or (cwd / ".cursor").exists() or shutil.which("cursor") is not None,
             [("project", cwd / ".cursor" / "mcp.json"), ("global", home / ".cursor" / "mcp.json")],
+        ),
+        _target(
+            "hermes",
+            "Hermes Agent",
+            "yaml",
+            hermes_root.exists() or shutil.which("hermes") is not None,
+            # Hermes reads MCP servers only from its own config.yaml.
+            [("global", hermes_root / "config.yaml")],
         ),
     ]
     if sys.platform == "darwin":
@@ -111,21 +133,39 @@ def server_entry(profile_path: Path) -> dict:
 def parse_client(target: ClientTarget, original: bytes | None):
     try:
         text = original.decode("utf-8") if original is not None else ""
-        document = tomlkit.parse(text) if target.format == "toml" else json.loads(text or "{}")
-    except (ValueError, UnicodeDecodeError):
+        if target.format == "toml":
+            document = tomlkit.parse(text)
+        elif target.format == "yaml":
+            document = _yaml().load(text)
+            document = CommentedMap() if document is None else document
+        else:
+            document = json.loads(text or "{}")
+    except (ValueError, UnicodeDecodeError, YAMLError):
         raise SetupError(f"{target.label} 設定格式錯誤，未修改：{target.path}") from None
     if not isinstance(document, dict):
         raise SetupError(f"{target.label} 設定必須為物件。")
-    key = "mcp_servers" if target.format == "toml" else "mcpServers"
+    key = SERVER_KEYS[target.format]
+    if target.format == "yaml" and key in document and document[key] is None:
+        document[key] = CommentedMap()  # A bare `mcp_servers:` means no servers yet.
     if key in document and not isinstance(document[key], dict):
         raise SetupError(f"{key} 必須為物件，未修改設定。")
     return document, key
 
 
+def dump_client(target: ClientTarget, document) -> bytes:
+    if target.format == "toml":
+        return tomlkit.dumps(document).encode("utf-8")
+    if target.format == "yaml":
+        stream = io.StringIO()
+        _yaml().dump(document, stream)
+        return stream.getvalue().encode("utf-8")
+    return (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
 def merge_servers(target: ClientTarget, original: bytes | None, entries: dict[str, dict]) -> bytes:
     document, key = parse_client(target, original)
     if key not in document:
-        document[key] = tomlkit.table() if target.format == "toml" else {}
+        document[key] = {"toml": tomlkit.table, "yaml": CommentedMap}.get(target.format, dict)()
     servers = document[key]
     for name, entry in entries.items():
         if name in servers:
@@ -138,12 +178,7 @@ def merge_servers(target: ClientTarget, original: bytes | None, entries: dict[st
             current["args"] = entry["args"]
         else:
             servers[name] = tomlkit.item(entry) if target.format == "toml" else entry
-    text = (
-        tomlkit.dumps(document)
-        if target.format == "toml"
-        else json.dumps(document, ensure_ascii=False, indent=2) + "\n"
-    )
-    return text.encode("utf-8")
+    return dump_client(target, document)
 
 
 def register_servers(

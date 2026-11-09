@@ -4,7 +4,6 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import tomlkit
 from pydantic import ValidationError
 
 from .. import credentials
@@ -13,7 +12,7 @@ from ..policy.models import PolicyFile
 from ..policy.scope import parse_scope_entry
 from ..profiles import ConnectionProfile, default_config_root, profile_bytes
 from .checks import check_mcp
-from .clients import ClientTarget, all_scope_targets, client_targets, parse_client, server_entry
+from .clients import ClientTarget, all_scope_targets, client_targets, dump_client, parse_client, server_entry
 from .files import SetupError, atomic_write, read_snapshot, restore_owned, snapshot_with_identity
 
 LEGACY_SERVICE = "sqlserver-semantic-mcp"
@@ -124,11 +123,7 @@ def _rewrite_client(target, original, profiles):
         changed = True
     if not changed:
         return None
-    return (
-        tomlkit.dumps(document)
-        if target.format == "toml"
-        else json.dumps(document, ensure_ascii=False, indent=2) + "\n"
-    ).encode()
+    return dump_client(target, document)
 
 
 def preview_migration(*, legacy_root=None, destination_root=None, clients=None):
@@ -310,11 +305,7 @@ def _restore_client_entries(target, before, after, profiles):
         entries[name] = old[key][name]
         changed = True
     if changed:
-        data = (
-            tomlkit.dumps(document)
-            if target.format == "toml"
-            else json.dumps(document, ensure_ascii=False, indent=2) + "\n"
-        ).encode()
+        data = dump_client(target, document)
         atomic_write(target.path, data, expected=current)
     return not preserved
 

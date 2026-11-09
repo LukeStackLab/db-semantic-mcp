@@ -138,6 +138,8 @@ def _select_clients(client, client_config, input_fn, emit, scope=None) -> list[C
         emit(f"{target.label} 設定：{target.path}")
         if target.name == "codex" and target.scope == "project":
             emit("  Codex 只會在已信任（trusted）的專案載入 .codex/config.toml。")
+        if target.name == "hermes":
+            emit("  Hermes Agent 可在對話中執行 /reload-mcp 載入新設定，不需重新啟動。")
     return selected
 
 

@@ -40,7 +40,7 @@ db-semantic-mcp setup
 db-semantic-mcp setup --tool-profile explore
 ```
 
-精靈使用繁體中文。選擇 Client、資料庫類型與 MCP 名稱，再輸入端點及憑證。選擇唯讀或受限寫入，最後確認摘要。Oracle 支援 Thin／Thick、service／SID／TNS、TLS，以及明確授權既有 DB link。精靈只測試登入、metadata 與 MCP 握手，不寫入資料測試權限。Client 設定合併前會備份。預設安裝為專案 MCP，請在目標專案執行精靈；互動勾選 Client 後，可逐一選擇專案或全域。專案位置：Codex `.codex/config.toml`、Claude Code `.mcp.json`、Cursor `.cursor/mcp.json`；全域位置：`~/.codex/config.toml`、`~/.claude.json`、`~/.cursor/mcp.json`。Claude Desktop 只有全域。搭配 `--client` 時用 `--scope project|global` 指定，省略為 project。Codex 只會在已信任的專案載入專案設定。完成後重新載入 MCP 設定。
+精靈使用繁體中文。選擇 Client、資料庫類型與 MCP 名稱，再輸入端點及憑證。選擇唯讀或受限寫入，最後確認摘要。Oracle 支援 Thin／Thick、service／SID／TNS、TLS，以及明確授權既有 DB link。精靈只測試登入、metadata 與 MCP 握手，不寫入資料測試權限。Client 設定合併前會備份。預設安裝為專案 MCP，請在目標專案執行精靈；互動勾選 Client 後，可逐一選擇專案或全域。專案位置：Codex `.codex/config.toml`、Claude Code `.mcp.json`、Cursor `.cursor/mcp.json`；全域位置：`~/.codex/config.toml`、`~/.claude.json`、`~/.cursor/mcp.json`。Claude Desktop 與 Hermes Agent 只有全域；Hermes 寫入 `~/.hermes/config.yaml`（設定 `HERMES_HOME` 時改用該目錄），合併時保留既有註解，可在對話執行 `/reload-mcp` 載入。Hermes 只傳遞明確設定的環境變數給 MCP，若憑證使用環境變數，需自行加到該 entry 的 `env`。搭配 `--client` 時用 `--scope project|global` 指定，省略為 project。Codex 只會在已信任的專案載入專案設定。完成後重新載入 MCP 設定。
 
 每組連線使用獨立 process、憑證參照、policy 與 cache。以不同名稱建立 `erp_prod`、`oracle_test`、`reporting`，再於對話指定要用的 MCP server。固定 profile 不受 cwd `.env` 或繼承的 `SEMANTIC_MCP_*` 設定影響。
 
