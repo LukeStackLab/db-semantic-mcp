@@ -106,7 +106,7 @@ class _Proof:
         return _rows(
             self.conn,
             f"""
-SELECT o.object_id, o.type, s.name, o.name, sn.base_object_name, m.definition,
+SELECT o.object_id, RTRIM(o.type), s.name, o.name, sn.base_object_name, m.definition,
        CASE WHEN ISNULL(HAS_PERMS_BY_NAME(QUOTENAME(%s)+'.'+QUOTENAME(s.name)+'.'+QUOTENAME(o.name), 'OBJECT', 'VIEW DEFINITION'),0)<>1
          OR EXISTS (SELECT 1 FROM {db}.sys.external_tables e WHERE e.object_id=o.object_id)
          OR EXISTS (SELECT 1 FROM {db}.sys.columns c WHERE c.object_id=o.object_id

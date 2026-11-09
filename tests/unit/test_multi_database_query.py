@@ -35,6 +35,9 @@ class Cursor:
             db = "CRM" if "[CRM]" in sql else "ERP"
             key = (db, *params[1:])
             obj = self.conn.objects.get(key)
+            if obj and "RTRIM(o.type)" not in sql:
+                # sys.objects.type is CHAR(2): SQL Server pads one-letter codes ("U ", "V ").
+                obj = (obj[0], obj[1].ljust(2), *obj[2:])
             if obj and "AS unsafe_write" in sql:
                 flags = self.conn.write_dependencies.get(key, {})
                 checks = {
